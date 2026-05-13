@@ -1,0 +1,40 @@
+@AllocServer_HostAddress = http://localhost:5244
+@accessToken = paste_access_token_here
+
+POST {{DemoWebAPI_HostAddress}}/api/auth/login
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "user@example.com",
+  "password": "password123",
+  "deviceInfo": "Visual Studio HTTP Client"
+}
+
+###
+
+GET {{DemoWebAPI_HostAddress}}/api/accounts?page=1&pageSize=20
+Accept: application/json
+Authorization: Bearer {{accessToken}}
+
+###
+
+GET {{DemoWebAPI_HostAddress}}/api/accounts/me
+Accept: application/json
+Authorization: Bearer {{accessToken}}
+
+###
+
+PUT {{DemoWebAPI_HostAddress}}/api/accounts
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "fullName": "Nguyen Van A",
+  "phoneNumber": "0901234567",
+  "avatarUrl": "https://example.com/avatar.png",
+  "timezone": "Asia/Bangkok"
+}
+
+###
