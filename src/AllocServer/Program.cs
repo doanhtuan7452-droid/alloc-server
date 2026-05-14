@@ -10,6 +10,7 @@ using AllocServer.Interfaces.Facade;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Interfaces.Register;
 using AllocServer.Interfaces.Revenues;
+using AllocServer.Interfaces.Requests;
 using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Timesheets;
 using AllocServer.Interfaces.Workspaces;
@@ -20,6 +21,7 @@ using AllocServer.Services.Expense_Services;
 using AllocServer.Services.Facade_Services;
 using AllocServer.Services.Project_Services;
 using AllocServer.Services.Revenue_Services;
+using AllocServer.Services.Request_Services;
 using AllocServer.Services.Register_Strategies;
 using AllocServer.Services.Task_Services;
 using AllocServer.Services.Timesheet_Services;
@@ -68,6 +70,7 @@ builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<ITimesheetService, TimesheetService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IRevenueService, RevenueService>();
+builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<ITokenDenylistService, TokenDenylistService>();
 builder.Services.AddScoped<RequireActiveAccountFilter>();
@@ -154,6 +157,7 @@ var app = builder.Build();
 await SeedTimesheetPermissionsAsync(app.Services);
 await SeedExpensePermissionsAsync(app.Services);
 await SeedRevenuePermissionsAsync(app.Services);
+await SeedRequestPermissionsAsync(app.Services);
 
 // ============================================================
 // HTTP Pipeline
@@ -323,6 +327,67 @@ static async Task SeedRevenuePermissionsAsync(IServiceProvider services)
         {
             PermissionID = RevenuePermissionIds.View,
             DisplayName = "View project revenues"
+        }
+    };
+
+    foreach (var permission in permissions)
+    {
+        var existingPermission = await dbContext.WorkspacePermissions
+            .FirstOrDefaultAsync(item => item.PermissionID == permission.PermissionID);
+
+        if (existingPermission == null)
+        {
+            dbContext.WorkspacePermissions.Add(permission);
+        }
+        else
+        {
+            existingPermission.DisplayName = permission.DisplayName;
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+
+    var ownerRoleIds = await dbContext.WorkspaceRoles
+        .Where(role =>
+            role.RoleName == "Owner"
+            && !role.IsDeleted)
+        .Select(role => role.WorkspaceRoleID)
+        .ToListAsync();
+
+    foreach (var ownerRoleId in ownerRoleIds)
+    {
+        foreach (var permission in permissions)
+        {
+            var exists = await dbContext.RolePermissions
+                .AnyAsync(item =>
+                    item.WorkspaceRoleID == ownerRoleId
+                    && item.PermissionID == permission.PermissionID);
+
+            if (!exists)
+            {
+                dbContext.RolePermissions.Add(new RolePermission
+                {
+                    WorkspaceRoleID = ownerRoleId,
+                    PermissionID = permission.PermissionID
+                });
+            }
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+}
+
+static async Task SeedRequestPermissionsAsync(IServiceProvider services)
+{
+    using var scope = services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    var permissions = new[]
+    {
+        new WorkspacePermission
+        {
+            PermissionID = RequestPermissionIds.Approve,
+            DisplayName = "Approve or reject workspace requests"
         }
     };
 

@@ -3,11 +3,11 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AllocServer.Models
 {
-    [Table("OTRequests")]
-    public class OTRequest
+    [Table("LeaveRequests")]
+    public class LeaveRequest
     {
         [Key]
-        public int OTRequestID { get; set; }
+        public int RequestID { get; set; }
 
         [Required]
         public int WorkspaceMemberID { get; set; }
@@ -15,20 +15,16 @@ namespace AllocServer.Models
         [ForeignKey("WorkspaceMemberID")]
         public WorkspaceMember? WorkspaceMember { get; set; }
 
-        public int? TaskID { get; set; }
-
-        [ForeignKey("TaskID")]
-        public ProjectTask? Task { get; set; }
-
-        public DateOnly RequestedDate { get; set; }
-
-        [Column(TypeName = "decimal(5,2)")]
-        public decimal ExpectedHours { get; set; }
-
         public int? ApproverID { get; set; }
 
         [ForeignKey("ApproverID")]
         public WorkspaceMember? Approver { get; set; }
+
+        public DateOnly StartDate { get; set; }
+
+        public DateOnly EndDate { get; set; }
+
+        public string? Reason { get; set; }
 
         [StringLength(20)]
         public string Status { get; set; } = "Pending";

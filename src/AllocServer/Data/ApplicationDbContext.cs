@@ -28,6 +28,7 @@ namespace AllocServer.Data
         public DbSet<Risk> Risks { get; set; }
         public DbSet<Conversation> Conversations { get; set; }
         public DbSet<Timesheet> Timesheets { get; set; }
+        public DbSet<LeaveRequest> LeaveRequests { get; set; }
         public DbSet<OTRequest> OTRequests { get; set; }
         public DbSet<TaskComment> TaskComments { get; set; }
         public DbSet<TaskAssignee> TaskAssignees { get; set; }
@@ -73,6 +74,9 @@ namespace AllocServer.Data
 
             modelBuilder.Entity<Timesheet>()
                 .HasQueryFilter(t => !t.IsDeleted);
+
+            modelBuilder.Entity<LeaveRequest>()
+                .HasQueryFilter(r => !r.IsDeleted);
 
             modelBuilder.Entity<OTRequest>()
                 .HasQueryFilter(r => !r.IsDeleted);
@@ -158,6 +162,36 @@ namespace AllocServer.Data
                 })
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<LeaveRequest>()
+                .HasOne(request => request.WorkspaceMember)
+                .WithMany()
+                .HasForeignKey(request => request.WorkspaceMemberID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<LeaveRequest>()
+                .HasOne(request => request.Approver)
+                .WithMany()
+                .HasForeignKey(request => request.ApproverID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<OTRequest>()
+                .HasOne(request => request.WorkspaceMember)
+                .WithMany()
+                .HasForeignKey(request => request.WorkspaceMemberID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<OTRequest>()
+                .HasOne(request => request.Approver)
+                .WithMany()
+                .HasForeignKey(request => request.ApproverID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<OTRequest>()
+                .HasOne(request => request.Task)
+                .WithMany()
+                .HasForeignKey(request => request.TaskID)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Expense>()
                 .HasOne(expense => expense.Project)
