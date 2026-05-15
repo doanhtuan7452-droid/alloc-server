@@ -205,6 +205,29 @@ namespace AllocServer.Data
                 .HasForeignKey(revenue => revenue.ProjectID)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Risk — Computed column + FK relationships
+            modelBuilder.Entity<Risk>()
+                .Property(risk => risk.RiskScore)
+                .HasComputedColumnSql("([Probability]*[Impact])", stored: true);
+
+            modelBuilder.Entity<Risk>()
+                .HasOne(risk => risk.Project)
+                .WithMany()
+                .HasForeignKey(risk => risk.ProjectID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Risk>()
+                .HasOne(risk => risk.Task)
+                .WithMany()
+                .HasForeignKey(risk => risk.TaskID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Risk>()
+                .HasOne(risk => risk.Owner)
+                .WithMany()
+                .HasForeignKey(risk => risk.OwnerID)
+                .OnDelete(DeleteBehavior.Restrict);
+
             modelBuilder.Entity<TaskDependency>()
                 .HasOne(taskDependency => taskDependency.PredecessorTask)
                 .WithMany()

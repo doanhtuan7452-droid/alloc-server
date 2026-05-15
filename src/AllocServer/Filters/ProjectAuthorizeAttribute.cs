@@ -38,6 +38,12 @@ namespace AllocServer.Filters
         public const string View = "revenue:view";
     }
 
+    public static class RiskPermissionIds
+    {
+        public const string View = "risk:view";
+        public const string Create = "risk:create";
+    }
+
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
     public class ProjectAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
     {

@@ -7,9 +7,11 @@ using AllocServer.DTOs.Workspaces;
 using AllocServer.DTOs.Common;
 using AllocServer.DTOs.Expenses;
 using AllocServer.DTOs.Revenues;
+using AllocServer.DTOs.Risks;
 using AllocServer.DTOs.Tasks;
 using AllocServer.Interfaces.Expenses;
 using AllocServer.Interfaces.Tasks;
+using AllocServer.Interfaces.Risks;
 using AllocServer.Filters;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Interfaces.Revenues;
@@ -25,17 +27,20 @@ namespace AllocServer.Controllers
         private readonly ITaskService _taskService;
         private readonly IExpenseService _expenseService;
         private readonly IRevenueService _revenueService;
+        private readonly IRiskService _riskService;
 
         public ProjectsController(
             IProjectService projectService,
             ITaskService taskService,
             IExpenseService expenseService,
-            IRevenueService revenueService)
+            IRevenueService revenueService,
+            IRiskService riskService)
         {
             _projectService = projectService;
             _taskService = taskService;
             _expenseService = expenseService;
             _revenueService = revenueService;
+            _riskService = riskService;
         }
 
         /// <summary>Lay chi tiet du an.</summary>
@@ -293,6 +298,78 @@ namespace AllocServer.Controllers
             {
                 var revenues = await _revenueService.GetProjectRevenuesAsync(project, query);
                 return Ok(revenues);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay danh sach rui ro du an.</summary>
+        [HttpGet("{projectId}/risks")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProjectAuthorize(RiskPermissionIds.View)]
+        [ProducesResponseType(typeof(PagedProjectRisksResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetProjectRisks(
+            int projectId,
+            [FromQuery] GetProjectRisksQuery query)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentProject(out var project))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+            }
+
+            try
+            {
+                var risks = await _riskService.GetProjectRisksAsync(project, query);
+                return Ok(risks);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Khai bao rui ro moi.</summary>
+        [HttpPost("{projectId}/risks")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProjectAuthorize(RiskPermissionIds.Create)]
+        [ProducesResponseType(typeof(RiskDetailResponse), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> CreateProjectRisk(
+            int projectId,
+            [FromBody] CreateRiskRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            if (!TryGetCurrentProject(out var project))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+            }
+
+            try
+            {
+                var risk = await _riskService.CreateProjectRiskAsync(
+                    accountId,
+                    project,
+                    request);
+
+                return StatusCode(201, risk);
             }
             catch (ArgumentException ex)
             {
