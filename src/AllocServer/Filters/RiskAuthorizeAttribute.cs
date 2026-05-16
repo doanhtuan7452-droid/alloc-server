@@ -8,56 +8,14 @@ using System.Security.Claims;
 
 namespace AllocServer.Filters
 {
-    public static class ProjectPermissionIds
-    {
-        public const string Update = "project:update";
-        public const string Delete = "project:delete";
-    }
-
-    public static class TaskPermissionIds
-    {
-        public const string Create = "task:create";
-        public const string Update = "task:update";
-        public const string Delete = "task:delete";
-    }
-
-    public static class TimesheetPermissionIds
-    {
-        public const string ViewAll = "timesheet:view_all";
-        public const string EditAll = "timesheet:edit_all";
-    }
-
-    public static class ExpensePermissionIds
-    {
-        public const string View = "expense:view";
-        public const string Create = "expense:create";
-    }
-
-    public static class RevenuePermissionIds
-    {
-        public const string View = "revenue:view";
-    }
-
-    public static class RiskPermissionIds
-    {
-        public const string View = "risk:view";
-        public const string Create = "risk:create";
-    }
-
-    public static class AIPermissionIds
-    {
-        public const string View = "ai:view";
-        public const string Ask = "ai:ask";
-    }
-
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
-    public class ProjectAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
+    public class RiskAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
     {
-        public const string CurrentProjectItemKey = "CurrentProject";
+        public const string CurrentRiskItemKey = "CurrentRisk";
 
         private readonly string? _requiredPermissionId;
 
-        public ProjectAuthorizeAttribute(string? requiredPermissionId = null)
+        public RiskAuthorizeAttribute(string? requiredPermissionId = null)
         {
             _requiredPermissionId = requiredPermissionId;
         }
@@ -81,33 +39,36 @@ namespace AllocServer.Filters
                 return;
             }
 
-            if (!context.RouteData.Values.TryGetValue("projectId", out var projectIdObj)
-                || !int.TryParse(projectIdObj?.ToString(), out var projectId))
+            if (!context.RouteData.Values.TryGetValue("riskId", out var riskIdObj)
+                || !int.TryParse(riskIdObj?.ToString(), out var riskId))
             {
-                context.Result = new BadRequestObjectResult(new { message = "Missing projectId in route." });
+                context.Result = new BadRequestObjectResult(new { message = "Missing riskId in route." });
                 return;
             }
 
             var dbContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
 
-            var project = await dbContext.Projects
-                .Include(item => item.Workspace)
+            var risk = await dbContext.Risks
+                .Include(item => item.Project)
+                    .ThenInclude(project => project!.Workspace)
                 .Where(item =>
-                    item.ProjectID == projectId
-                    && item.Workspace != null
-                    && !item.Workspace.IsDeleted)
+                    item.RiskID == riskId
+                    && item.Project != null
+                    && item.Project.Workspace != null
+                    && !item.Project.IsDeleted
+                    && !item.Project.Workspace.IsDeleted)
                 .FirstOrDefaultAsync();
 
-            if (project == null)
+            if (risk == null || risk.Project == null)
             {
-                context.Result = new NotFoundObjectResult(new { message = "Khong tim thay Project." });
+                context.Result = new NotFoundObjectResult(new { message = "Khong tim thay Risk." });
                 return;
             }
 
             var membership = await dbContext.WorkspaceMembers
                 .AsNoTracking()
                 .Where(member =>
-                    member.WorkspaceID == project.WorkspaceID
+                    member.WorkspaceID == risk.Project.WorkspaceID
                     && member.Resource.AccountID == accountId
                     && member.Status == "Active"
                     && !member.Workspace.IsDeleted)
@@ -144,7 +105,8 @@ namespace AllocServer.Filters
                 }
             }
 
-            context.HttpContext.Items[CurrentProjectItemKey] = project;
+            context.HttpContext.Items[CurrentRiskItemKey] = risk;
+            context.HttpContext.Items[ProjectAuthorizeAttribute.CurrentProjectItemKey] = risk.Project;
         }
     }
 }

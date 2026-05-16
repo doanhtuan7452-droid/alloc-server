@@ -20,12 +20,16 @@ namespace AllocServer.Data
         public DbSet<RolePermission> RolePermissions { get; set; }
         public DbSet<WorkspaceMember> WorkspaceMembers { get; set; }
         public DbSet<WorkspaceCurrentLimit> WorkspaceCurrentLimits { get; set; }
+        public DbSet<WorkspaceMonthlyUsage> WorkspaceMonthlyUsages { get; set; }
         public DbSet<Project> Projects { get; set; }
         public DbSet<ProjectTask> ProjectTasks { get; set; }
         public DbSet<Expense> Expenses { get; set; }
         public DbSet<Revenue> Revenues { get; set; }
         public DbSet<ProjectAsset> ProjectAssets { get; set; }
+        public DbSet<AILog> AILogs { get; set; }
         public DbSet<Risk> Risks { get; set; }
+        public DbSet<RiskMitigation> RiskMitigations { get; set; }
+        public DbSet<RiskLifecycle> RiskLifecycles { get; set; }
         public DbSet<Conversation> Conversations { get; set; }
         public DbSet<Timesheet> Timesheets { get; set; }
         public DbSet<LeaveRequest> LeaveRequests { get; set; }
@@ -98,6 +102,33 @@ namespace AllocServer.Data
                     rolePermission.WorkspaceRoleID,
                     rolePermission.PermissionID
                 });
+
+            modelBuilder.Entity<AILog>()
+                .HasOne(log => log.Project)
+                .WithMany()
+                .HasForeignKey(log => log.ProjectID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AILog>()
+                .HasIndex(log => new
+                {
+                    log.ProjectID,
+                    log.CreatedAt
+                });
+
+            modelBuilder.Entity<WorkspaceMonthlyUsage>()
+                .HasOne(usage => usage.Workspace)
+                .WithMany()
+                .HasForeignKey(usage => usage.WorkspaceID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<WorkspaceMonthlyUsage>()
+                .HasIndex(usage => new
+                {
+                    usage.WorkspaceID,
+                    usage.BillingMonth
+                })
+                .IsUnique();
 
             // UQ_Accounts_Email — Unique Email nhưng bỏ qua bản ghi đã xóa mềm
             modelBuilder.Entity<Account>()
@@ -226,6 +257,38 @@ namespace AllocServer.Data
                 .HasOne(risk => risk.Owner)
                 .WithMany()
                 .HasForeignKey(risk => risk.OwnerID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Risk>()
+                .HasOne(risk => risk.AILog)
+                .WithMany()
+                .HasForeignKey(risk => risk.AILogID)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // RiskMitigation — FK relationships
+            modelBuilder.Entity<RiskMitigation>()
+                .HasOne(mitigation => mitigation.Risk)
+                .WithMany()
+                .HasForeignKey(mitigation => mitigation.RiskID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<RiskMitigation>()
+                .HasOne(mitigation => mitigation.AssignedMember)
+                .WithMany()
+                .HasForeignKey(mitigation => mitigation.AssignedMemberID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // RiskLifecycle — FK relationships
+            modelBuilder.Entity<RiskLifecycle>()
+                .HasOne(lifecycle => lifecycle.Risk)
+                .WithMany()
+                .HasForeignKey(lifecycle => lifecycle.RiskID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<RiskLifecycle>()
+                .HasOne(lifecycle => lifecycle.ChangedByMember)
+                .WithMany()
+                .HasForeignKey(lifecycle => lifecycle.ChangedByMemberID)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<TaskDependency>()

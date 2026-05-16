@@ -22,6 +22,9 @@ namespace AllocServer.Models
 
         public int? AILogID { get; set; }
 
+        [ForeignKey("AILogID")]
+        public AILog? AILog { get; set; }
+
         [Required]
         [StringLength(255)]
         public string RiskName { get; set; } = string.Empty;

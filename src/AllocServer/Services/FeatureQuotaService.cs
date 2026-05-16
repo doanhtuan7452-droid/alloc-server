@@ -1,4 +1,5 @@
 using AllocServer.Data;
+using AllocServer.DTOs.Common;
 using AllocServer.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -52,6 +53,21 @@ namespace AllocServer.Services
 
             // So sánh với số lượng hiện tại
             return currentCount < limitInfo.LimitValue;
+        }
+
+        public async Task<FeatureLimitInfo?> GetFeatureLimitAsync(int workspaceId, string featureCode)
+        {
+            return await _dbContext.WorkspaceCurrentLimits
+                .AsNoTracking()
+                .Where(limit =>
+                    limit.WorkspaceID == workspaceId
+                    && limit.FeatureCode == featureCode)
+                .Select(limit => new FeatureLimitInfo
+                {
+                    IsIncluded = limit.IsIncluded,
+                    LimitValue = limit.LimitValue
+                })
+                .FirstOrDefaultAsync();
         }
     }
 }

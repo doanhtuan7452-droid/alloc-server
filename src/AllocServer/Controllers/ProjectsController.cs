@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using AllocServer.DTOs.Workspaces;
+using AllocServer.DTOs.AIInsights;
 using AllocServer.DTOs.Common;
 using AllocServer.DTOs.Expenses;
 using AllocServer.DTOs.Revenues;
@@ -12,6 +13,7 @@ using AllocServer.DTOs.Tasks;
 using AllocServer.Interfaces.Expenses;
 using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Risks;
+using AllocServer.Interfaces.AIInsights;
 using AllocServer.Filters;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Interfaces.Revenues;
@@ -28,19 +30,22 @@ namespace AllocServer.Controllers
         private readonly IExpenseService _expenseService;
         private readonly IRevenueService _revenueService;
         private readonly IRiskService _riskService;
+        private readonly IAIInsightService _aiInsightService;
 
         public ProjectsController(
             IProjectService projectService,
             ITaskService taskService,
             IExpenseService expenseService,
             IRevenueService revenueService,
-            IRiskService riskService)
+            IRiskService riskService,
+            IAIInsightService aiInsightService)
         {
             _projectService = projectService;
             _taskService = taskService;
             _expenseService = expenseService;
             _revenueService = revenueService;
             _riskService = riskService;
+            _aiInsightService = aiInsightService;
         }
 
         /// <summary>Lay chi tiet du an.</summary>
@@ -329,6 +334,38 @@ namespace AllocServer.Controllers
             {
                 var risks = await _riskService.GetProjectRisksAsync(project, query);
                 return Ok(risks);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay danh sach canh bao AI cua du an.</summary>
+        [HttpGet("{projectId}/ai-insights")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProjectAuthorize(AIPermissionIds.View)]
+        [ProducesResponseType(typeof(PagedAIInsightsResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetProjectAIInsights(
+            int projectId,
+            [FromQuery] GetProjectAIInsightsQuery query)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentProject(out var project))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+            }
+
+            try
+            {
+                var insights = await _aiInsightService.GetProjectAIInsightsAsync(project, query);
+                return Ok(insights);
             }
             catch (ArgumentException ex)
             {

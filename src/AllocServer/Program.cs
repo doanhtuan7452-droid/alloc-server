@@ -1,6 +1,8 @@
 using AllocServer.Data;
 using AllocServer.Filters;
 using AllocServer.Interfaces;
+using AllocServer.Interfaces.AI;
+using AllocServer.Interfaces.AIInsights;
 using AllocServer.Middleware;
 using AllocServer.Services;
 using AllocServer.Interfaces.Auth;
@@ -16,6 +18,8 @@ using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Timesheets;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Models;
+using AllocServer.Services.AI_Services;
+using AllocServer.Services.AIInsight_Services;
 using AllocServer.Services.Auth_Services;
 using AllocServer.Services.Command_Handlers;
 using AllocServer.Services.Expense_Services;
@@ -73,6 +77,9 @@ builder.Services.AddScoped<ITimesheetService, TimesheetService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IRevenueService, RevenueService>();
 builder.Services.AddScoped<IRiskService, RiskService>();
+builder.Services.AddScoped<IAIInsightService, AIInsightService>();
+builder.Services.AddScoped<IAIAnalysisService, AIAnalysisService>();
+builder.Services.AddScoped<IAIProvider, MockAIProvider>();
 builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<ITokenDenylistService, TokenDenylistService>();
@@ -162,6 +169,7 @@ await SeedExpensePermissionsAsync(app.Services);
 await SeedRevenuePermissionsAsync(app.Services);
 await SeedRequestPermissionsAsync(app.Services);
 await SeedRiskPermissionsAsync(app.Services);
+await SeedAIPermissionsAsync(app.Services);
 
 // ============================================================
 // HTTP Pipeline
@@ -458,6 +466,72 @@ static async Task SeedRiskPermissionsAsync(IServiceProvider services)
         {
             PermissionID = RiskPermissionIds.Create,
             DisplayName = "Create project risks"
+        }
+    };
+
+    foreach (var permission in permissions)
+    {
+        var existingPermission = await dbContext.WorkspacePermissions
+            .FirstOrDefaultAsync(item => item.PermissionID == permission.PermissionID);
+
+        if (existingPermission == null)
+        {
+            dbContext.WorkspacePermissions.Add(permission);
+        }
+        else
+        {
+            existingPermission.DisplayName = permission.DisplayName;
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+
+    var ownerRoleIds = await dbContext.WorkspaceRoles
+        .Where(role =>
+            role.RoleName == "Owner"
+            && !role.IsDeleted)
+        .Select(role => role.WorkspaceRoleID)
+        .ToListAsync();
+
+    foreach (var ownerRoleId in ownerRoleIds)
+    {
+        foreach (var permission in permissions)
+        {
+            var exists = await dbContext.RolePermissions
+                .AnyAsync(item =>
+                    item.WorkspaceRoleID == ownerRoleId
+                    && item.PermissionID == permission.PermissionID);
+
+            if (!exists)
+            {
+                dbContext.RolePermissions.Add(new RolePermission
+                {
+                    WorkspaceRoleID = ownerRoleId,
+                    PermissionID = permission.PermissionID
+                });
+            }
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+}
+
+static async Task SeedAIPermissionsAsync(IServiceProvider services)
+{
+    using var scope = services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    var permissions = new[]
+    {
+        new WorkspacePermission
+        {
+            PermissionID = AIPermissionIds.View,
+            DisplayName = "View project AI insights"
+        },
+        new WorkspacePermission
+        {
+            PermissionID = AIPermissionIds.Ask,
+            DisplayName = "Ask project AI assistant"
         }
     };
 

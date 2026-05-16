@@ -29,6 +29,22 @@ namespace AllocServer.Services.Risk_Services
             "Closed"
         };
 
+        private static readonly HashSet<string> AllowedMitigationStrategies = new(StringComparer.Ordinal)
+        {
+            "Avoid",
+            "Transfer",
+            "Mitigate",
+            "Accept"
+        };
+
+        private static readonly HashSet<string> AllowedMitigationStatuses = new(StringComparer.Ordinal)
+        {
+            "Planned",
+            "In Progress",
+            "Completed",
+            "Failed"
+        };
+
         private readonly ApplicationDbContext _context;
 
         public RiskService(ApplicationDbContext context)
@@ -330,6 +346,219 @@ namespace AllocServer.Services.Risk_Services
                 CreatedAt = risk.CreatedAt,
                 UpdatedAt = risk.UpdatedAt
             };
+        }
+
+        public async Task<RiskMitigationResponse> CreateRiskMitigationAsync(
+            int accountId,
+            Risk risk,
+            CreateRiskMitigationRequest request)
+        {
+            // Validate StrategyType
+            var strategyType = NormalizeMitigationStrategy(request.StrategyType);
+            if (strategyType == null)
+            {
+                throw new ArgumentException(
+                    "StrategyType chi nhan Avoid, Transfer, Mitigate hoac Accept.");
+            }
+
+            // Validate ActionPlan
+            var actionPlan = NormalizeOptionalString(request.ActionPlan);
+            if (actionPlan == null)
+            {
+                throw new ArgumentException("ActionPlan la bat buoc.");
+            }
+
+            // Validate MitigationCost
+            if (request.MitigationCost < 0 || request.MitigationCost > MaxMoneyAmount)
+            {
+                throw new ArgumentException(
+                    "MitigationCost phai tu 0 den 9999999999999999.99.");
+            }
+
+            // Validate Status
+            var mitigationStatus = NormalizeMitigationStatus(request.Status, allowDefault: true);
+            if (mitigationStatus == null)
+            {
+                throw new ArgumentException(
+                    "Status chi nhan Planned, In Progress, Completed hoac Failed.");
+            }
+
+            // Check Risk status — cannot create mitigation for Realized or Closed
+            if (risk.Status == "Realized" || risk.Status == "Closed")
+            {
+                throw new InvalidOperationException(
+                    "Khong the tao mitigation cho risk da Realized hoac Closed.");
+            }
+
+            // Validate AssignedMemberId
+            if (request.AssignedMemberId != null)
+            {
+                var isValidMember = await _context.WorkspaceMembers
+                    .AsNoTracking()
+                    .AnyAsync(member =>
+                        member.WorkspaceMemberID == request.AssignedMemberId.Value
+                        && member.WorkspaceID == risk.Project!.WorkspaceID
+                        && member.Status == "Active"
+                        && !member.Workspace.IsDeleted
+                        && !member.Resource.IsDeleted
+                        && _context.Accounts.Any(account =>
+                            account.AccountID == member.Resource.AccountID));
+
+                if (!isValidMember)
+                {
+                    throw new ArgumentException(
+                        "AssignedMember khong ton tai, khong active hoac khong thuoc workspace cua risk.");
+                }
+            }
+
+            // Validate TargetDate
+            if (request.TargetDate != null)
+            {
+                if (request.TargetDate.Value < risk.Project!.StartDate
+                    || request.TargetDate.Value > risk.Project.EndDate)
+                {
+                    throw new ArgumentException(
+                        "TargetDate phai nam trong khoang StartDate va EndDate cua project.");
+                }
+            }
+
+            // Resolve actorMemberId from accountId
+            var actorMemberId = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .Where(member =>
+                    member.Resource.AccountID == accountId
+                    && member.WorkspaceID == risk.Project!.WorkspaceID
+                    && member.Status == "Active")
+                .Select(member => member.WorkspaceMemberID)
+                .FirstOrDefaultAsync();
+
+            if (actorMemberId == 0)
+            {
+                throw new UnauthorizedAccessException(
+                    "Khong tim thay thanh vien active trong workspace.");
+            }
+
+            // Transaction: create mitigation + optional status transition
+            var mitigation = new RiskMitigation
+            {
+                RiskID = risk.RiskID,
+                StrategyType = strategyType,
+                ActionPlan = actionPlan,
+                MitigationCost = request.MitigationCost,
+                AssignedMemberID = request.AssignedMemberId,
+                TargetDate = request.TargetDate,
+                Status = mitigationStatus
+            };
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                _context.RiskMitigations.Add(mitigation);
+
+                // Status transition: Identified/Assessed → Mitigation Planned
+                if (risk.Status == "Identified" || risk.Status == "Assessed")
+                {
+                    var oldStatus = risk.Status;
+                    risk.Status = "Mitigation Planned";
+                    risk.UpdatedAt = DateTime.UtcNow;
+
+                    _context.RiskLifecycles.Add(new RiskLifecycle
+                    {
+                        RiskID = risk.RiskID,
+                        ChangedByMemberID = actorMemberId,
+                        OldStatus = oldStatus,
+                        NewStatus = "Mitigation Planned",
+                        OldScore = risk.RiskScore,
+                        NewScore = risk.RiskScore,
+                        ChangeNote = "Da lap ke hoach giam thieu rui ro."
+                    });
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            return MapMitigation(mitigation);
+        }
+
+        public async Task<List<RiskLifecycleResponse>> GetRiskLifecycleAsync(Risk risk)
+        {
+            return await _context.RiskLifecycles
+                .AsNoTracking()
+                .Where(lifecycle => lifecycle.RiskID == risk.RiskID)
+                .OrderBy(lifecycle => lifecycle.ChangeDate)
+                .ThenBy(lifecycle => lifecycle.HistoryID)
+                .Take(500)
+                .Select(lifecycle => new RiskLifecycleResponse
+                {
+                    HistoryId = lifecycle.HistoryID,
+                    RiskId = lifecycle.RiskID,
+                    ChangedByMemberId = lifecycle.ChangedByMemberID,
+                    OldStatus = lifecycle.OldStatus,
+                    NewStatus = lifecycle.NewStatus,
+                    OldScore = lifecycle.OldScore,
+                    NewScore = lifecycle.NewScore,
+                    ChangeNote = lifecycle.ChangeNote,
+                    ChangeDate = lifecycle.ChangeDate
+                })
+                .ToListAsync();
+        }
+
+        private static RiskMitigationResponse MapMitigation(RiskMitigation mitigation)
+        {
+            return new RiskMitigationResponse
+            {
+                MitigationId = mitigation.MitigationID,
+                RiskId = mitigation.RiskID,
+                StrategyType = mitigation.StrategyType,
+                ActionPlan = mitigation.ActionPlan,
+                MitigationCost = mitigation.MitigationCost,
+                AssignedMemberId = mitigation.AssignedMemberID,
+                TargetDate = mitigation.TargetDate,
+                Status = mitigation.Status,
+                CreatedAt = mitigation.CreatedAt
+            };
+        }
+
+        private static string? NormalizeMitigationStrategy(string? strategy)
+        {
+            var normalized = NormalizeOptionalString(strategy);
+            if (normalized == null)
+                return null;
+
+            var candidate = normalized.ToUpperInvariant() switch
+            {
+                "AVOID" => "Avoid",
+                "TRANSFER" => "Transfer",
+                "MITIGATE" => "Mitigate",
+                "ACCEPT" => "Accept",
+                _ => normalized
+            };
+
+            return AllowedMitigationStrategies.Contains(candidate) ? candidate : null;
+        }
+
+        private static string? NormalizeMitigationStatus(string? status, bool allowDefault)
+        {
+            var normalized = NormalizeOptionalString(status);
+            if (normalized == null)
+                return allowDefault ? "Planned" : null;
+
+            var candidate = normalized.ToUpperInvariant() switch
+            {
+                "PLANNED" => "Planned",
+                "IN PROGRESS" => "In Progress",
+                "COMPLETED" => "Completed",
+                "FAILED" => "Failed",
+                _ => normalized
+            };
+
+            return AllowedMitigationStatuses.Contains(candidate) ? candidate : null;
         }
 
         private static string? NormalizeOptionalString(string? value)
