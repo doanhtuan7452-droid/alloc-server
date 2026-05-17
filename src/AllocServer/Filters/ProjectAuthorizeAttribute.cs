@@ -50,6 +50,13 @@ namespace AllocServer.Filters
         public const string Ask = "ai:ask";
     }
 
+    public static class AssetPermissionIds
+    {
+        public const string View = "asset:view";
+        public const string Create = "asset:create";
+        public const string Delete = "asset:delete";
+    }
+
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
     public class ProjectAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
     {

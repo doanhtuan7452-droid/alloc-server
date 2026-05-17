@@ -9,11 +9,13 @@ using AllocServer.Interfaces.Auth;
 using AllocServer.Interfaces.Commands;
 using AllocServer.Interfaces.Expenses;
 using AllocServer.Interfaces.Facade;
+using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Interfaces.Register;
 using AllocServer.Interfaces.Revenues;
 using AllocServer.Interfaces.Requests;
 using AllocServer.Interfaces.Risks;
+using AllocServer.Interfaces.Storage;
 using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Timesheets;
 using AllocServer.Interfaces.Workspaces;
@@ -24,11 +26,13 @@ using AllocServer.Services.Auth_Services;
 using AllocServer.Services.Command_Handlers;
 using AllocServer.Services.Expense_Services;
 using AllocServer.Services.Facade_Services;
+using AllocServer.Services.ProjectAsset_Services;
 using AllocServer.Services.Project_Services;
 using AllocServer.Services.Revenue_Services;
 using AllocServer.Services.Request_Services;
 using AllocServer.Services.Register_Strategies;
 using AllocServer.Services.Risk_Services;
+using AllocServer.Services.Storage;
 using AllocServer.Services.Task_Services;
 using AllocServer.Services.Timesheet_Services;
 using AllocServer.Services.Workspace_Services;
@@ -77,6 +81,7 @@ builder.Services.AddScoped<ITimesheetService, TimesheetService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IRevenueService, RevenueService>();
 builder.Services.AddScoped<IRiskService, RiskService>();
+builder.Services.AddScoped<IProjectAssetService, ProjectAssetService>();
 builder.Services.AddScoped<IAIInsightService, AIInsightService>();
 builder.Services.AddScoped<IAIAnalysisService, AIAnalysisService>();
 builder.Services.AddScoped<IAIProvider, MockAIProvider>();
@@ -85,6 +90,13 @@ builder.Services.AddScoped<ISessionService, SessionService>();
 builder.Services.AddScoped<ITokenDenylistService, TokenDenylistService>();
 builder.Services.AddScoped<RequireActiveAccountFilter>();
 builder.Services.AddScoped<RequireSystemAccountFilter>();
+
+// ============================================================
+// Dependency Injection — Storage Strategy + Factory
+// ============================================================
+builder.Services.AddScoped<AzureBlobStorageStrategy>();
+builder.Services.AddScoped<IStorageStrategy, AzureBlobStorageStrategy>();
+builder.Services.AddScoped<StorageFactory>();
 
 // ============================================================
 // Dependency Injection — Strategy Pattern (Register)
@@ -170,6 +182,7 @@ await SeedRevenuePermissionsAsync(app.Services);
 await SeedRequestPermissionsAsync(app.Services);
 await SeedRiskPermissionsAsync(app.Services);
 await SeedAIPermissionsAsync(app.Services);
+await SeedAssetPermissionsAsync(app.Services);
 
 // ============================================================
 // HTTP Pipeline
@@ -532,6 +545,77 @@ static async Task SeedAIPermissionsAsync(IServiceProvider services)
         {
             PermissionID = AIPermissionIds.Ask,
             DisplayName = "Ask project AI assistant"
+        }
+    };
+
+    foreach (var permission in permissions)
+    {
+        var existingPermission = await dbContext.WorkspacePermissions
+            .FirstOrDefaultAsync(item => item.PermissionID == permission.PermissionID);
+
+        if (existingPermission == null)
+        {
+            dbContext.WorkspacePermissions.Add(permission);
+        }
+        else
+        {
+            existingPermission.DisplayName = permission.DisplayName;
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+
+    var ownerRoleIds = await dbContext.WorkspaceRoles
+        .Where(role =>
+            role.RoleName == "Owner"
+            && !role.IsDeleted)
+        .Select(role => role.WorkspaceRoleID)
+        .ToListAsync();
+
+    foreach (var ownerRoleId in ownerRoleIds)
+    {
+        foreach (var permission in permissions)
+        {
+            var exists = await dbContext.RolePermissions
+                .AnyAsync(item =>
+                    item.WorkspaceRoleID == ownerRoleId
+                    && item.PermissionID == permission.PermissionID);
+
+            if (!exists)
+            {
+                dbContext.RolePermissions.Add(new RolePermission
+                {
+                    WorkspaceRoleID = ownerRoleId,
+                    PermissionID = permission.PermissionID
+                });
+            }
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+}
+
+static async Task SeedAssetPermissionsAsync(IServiceProvider services)
+{
+    using var scope = services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    var permissions = new[]
+    {
+        new WorkspacePermission
+        {
+            PermissionID = AssetPermissionIds.View,
+            DisplayName = "View project assets"
+        },
+        new WorkspacePermission
+        {
+            PermissionID = AssetPermissionIds.Create,
+            DisplayName = "Upload project assets"
+        },
+        new WorkspacePermission
+        {
+            PermissionID = AssetPermissionIds.Delete,
+            DisplayName = "Delete project assets"
         }
     };
 

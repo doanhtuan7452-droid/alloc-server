@@ -7,6 +7,7 @@ using AllocServer.DTOs.Workspaces;
 using AllocServer.DTOs.AIInsights;
 using AllocServer.DTOs.Common;
 using AllocServer.DTOs.Expenses;
+using AllocServer.DTOs.Projects;
 using AllocServer.DTOs.Revenues;
 using AllocServer.DTOs.Risks;
 using AllocServer.DTOs.Tasks;
@@ -15,6 +16,7 @@ using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Risks;
 using AllocServer.Interfaces.AIInsights;
 using AllocServer.Filters;
+using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Interfaces.Revenues;
 using AllocServer.Models;
@@ -31,6 +33,7 @@ namespace AllocServer.Controllers
         private readonly IRevenueService _revenueService;
         private readonly IRiskService _riskService;
         private readonly IAIInsightService _aiInsightService;
+        private readonly IProjectAssetService _projectAssetService;
 
         public ProjectsController(
             IProjectService projectService,
@@ -38,7 +41,8 @@ namespace AllocServer.Controllers
             IExpenseService expenseService,
             IRevenueService revenueService,
             IRiskService riskService,
-            IAIInsightService aiInsightService)
+            IAIInsightService aiInsightService,
+            IProjectAssetService projectAssetService)
         {
             _projectService = projectService;
             _taskService = taskService;
@@ -46,6 +50,7 @@ namespace AllocServer.Controllers
             _revenueService = revenueService;
             _riskService = riskService;
             _aiInsightService = aiInsightService;
+            _projectAssetService = projectAssetService;
         }
 
         /// <summary>Lay chi tiet du an.</summary>
@@ -200,6 +205,84 @@ namespace AllocServer.Controllers
                     request);
 
                 return StatusCode(201, task);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay danh sach tai lieu cua du an.</summary>
+        [HttpGet("{projectId}/assets")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProjectAuthorize(AssetPermissionIds.View)]
+        [ProducesResponseType(typeof(PagedProjectAssetsResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetProjectAssets(
+            int projectId,
+            [FromQuery] GetProjectAssetsQuery query)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentProject(out var project))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+            }
+
+            try
+            {
+                var assets = await _projectAssetService.GetProjectAssetsAsync(project, query);
+                return Ok(assets);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Upload tai lieu moi vao du an.</summary>
+        [HttpPost("{projectId}/assets")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProjectAuthorize(AssetPermissionIds.Create)]
+        [Consumes("multipart/form-data")]
+        [ProducesResponseType(typeof(ProjectAssetResponseDto), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UploadProjectAsset(
+            int projectId,
+            [FromForm] UploadAssetRequestDto request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            if (!TryGetCurrentProject(out var project))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+            }
+
+            try
+            {
+                var asset = await _projectAssetService.UploadProjectAssetAsync(
+                    accountId,
+                    project,
+                    request);
+
+                return StatusCode(201, asset);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
             }
             catch (ArgumentException ex)
             {

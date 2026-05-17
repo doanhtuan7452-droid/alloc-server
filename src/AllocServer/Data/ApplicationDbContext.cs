@@ -236,6 +236,26 @@ namespace AllocServer.Data
                 .HasForeignKey(revenue => revenue.ProjectID)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<ProjectAsset>()
+                .HasOne(asset => asset.Project)
+                .WithMany()
+                .HasForeignKey(asset => asset.ProjectID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectAsset>()
+                .HasOne(asset => asset.UploadedByMember)
+                .WithMany()
+                .HasForeignKey(asset => asset.UploadedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectAsset>()
+                .Property(asset => asset.AssetType)
+                .HasMaxLength(20);
+
+            modelBuilder.Entity<ProjectAsset>()
+                .Property(asset => asset.AssetName)
+                .HasMaxLength(255);
+
             // Risk — Computed column + FK relationships
             modelBuilder.Entity<Risk>()
                 .Property(risk => risk.RiskScore)
