@@ -1,5 +1,6 @@
 using AllocServer.Data;
 using AllocServer.DTOs.Tasks;
+using AllocServer.Filters;
 using AllocServer.Interfaces.Tasks;
 using AllocServer.Models;
 using Microsoft.EntityFrameworkCore;
@@ -425,6 +426,10 @@ namespace AllocServer.Services.Task_Services
                         .SetProperty(item => item.DeletedAt, deletedAt)
                         .SetProperty(item => item.DeletedBy, accountId));
 
+                await _context.TaskAssets
+                    .Where(item => item.TaskID == task.TaskID)
+                    .ExecuteDeleteAsync();
+
                 await _context.Risks
                     .Where(item => item.TaskID == task.TaskID)
                     .ExecuteUpdateAsync(setters => setters
@@ -444,6 +449,289 @@ namespace AllocServer.Services.Task_Services
                 await transaction.RollbackAsync();
                 throw;
             }
+        }
+
+        public async Task<List<TaskCommentResponse>> GetTaskCommentsAsync(ProjectTask task)
+        {
+            var comments = await _context.TaskComments
+                .Include(c => c.WorkspaceMember)
+                .ThenInclude(m => m.Resource)
+                .AsNoTracking()
+                .Where(c => c.TaskID == task.TaskID)
+                .OrderBy(c => c.CreatedAt)
+                .ToListAsync();
+
+            var commentDict = comments.Select(c => new TaskCommentResponse
+            {
+                CommentId = c.CommentID,
+                TaskId = c.TaskID,
+                MemberId = c.MemberID,
+                MemberName = c.WorkspaceMember?.Resource?.FullName ?? string.Empty,
+                MemberAvatarUrl = c.WorkspaceMember?.Resource?.AvatarURL,
+                ParentCommentId = c.ParentCommentID,
+                Content = c.Content,
+                CreatedAt = c.CreatedAt,
+                UpdatedAt = c.UpdatedAt
+            }).ToDictionary(c => c.CommentId);
+
+            var rootComments = new List<TaskCommentResponse>();
+
+            foreach (var comment in commentDict.Values)
+            {
+                if (comment.ParentCommentId.HasValue && commentDict.TryGetValue(comment.ParentCommentId.Value, out var parent))
+                {
+                    parent.Replies.Add(comment);
+                }
+                else
+                {
+                    rootComments.Add(comment);
+                }
+            }
+
+            return rootComments;
+        }
+
+        public async Task<TaskCommentResponse> CreateTaskCommentAsync(
+            int accountId,
+            ProjectTask task,
+            CreateTaskCommentRequest request)
+        {
+            var content = NormalizeOptionalString(request.Content);
+            if (content == null)
+                throw new ArgumentException("Noi dung binh luan khong duoc de trong.");
+
+            var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+            var memberId = await GetWorkspaceMemberIdAsync(accountId, taskWorkspaceId);
+
+            int? finalParentId = null;
+            if (request.ParentCommentId.HasValue)
+            {
+                var parent = await _context.TaskComments
+                    .FirstOrDefaultAsync(c => c.CommentID == request.ParentCommentId.Value && c.TaskID == task.TaskID);
+
+                if (parent == null)
+                    throw new KeyNotFoundException("Khong tim thay binh luan cha.");
+
+                finalParentId = parent.ParentCommentID ?? parent.CommentID; // Force 1-level nesting
+            }
+
+            var comment = new TaskComment
+            {
+                TaskID = task.TaskID,
+                MemberID = memberId,
+                ParentCommentID = finalParentId,
+                Content = content
+            };
+
+            _context.TaskComments.Add(comment);
+            await _context.SaveChangesAsync();
+
+            var memberInfo = await _context.WorkspaceMembers
+                .Include(m => m.Resource)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.WorkspaceMemberID == memberId);
+
+            return new TaskCommentResponse
+            {
+                CommentId = comment.CommentID,
+                TaskId = comment.TaskID,
+                MemberId = comment.MemberID,
+                MemberName = memberInfo?.Resource?.FullName ?? string.Empty,
+                MemberAvatarUrl = memberInfo?.Resource?.AvatarURL,
+                ParentCommentId = comment.ParentCommentID,
+                Content = comment.Content,
+                CreatedAt = comment.CreatedAt
+            };
+        }
+
+        public async Task<TaskCommentResponse> UpdateTaskCommentAsync(
+            int accountId,
+            int commentId,
+            UpdateTaskCommentRequest request)
+        {
+            var content = NormalizeOptionalString(request.Content);
+            if (content == null)
+                throw new ArgumentException("Noi dung binh luan khong duoc de trong.");
+
+            var comment = await _context.TaskComments
+                .Include(c => c.Task)
+                    .ThenInclude(t => t.Project)
+                .Include(c => c.WorkspaceMember)
+                    .ThenInclude(m => m.Resource)
+                .FirstOrDefaultAsync(c => c.CommentID == commentId);
+
+            if (comment == null)
+                throw new KeyNotFoundException("Khong tim thay binh luan.");
+
+            var workspaceId = comment.Task!.Project!.WorkspaceID;
+            var currentMemberId = await GetWorkspaceMemberIdAsync(accountId, workspaceId);
+
+            var currentMember = await _context.WorkspaceMembers
+                .Include(m => m.WorkspaceRole)
+                .FirstOrDefaultAsync(m => m.WorkspaceMemberID == currentMemberId);
+
+            var isOwner = currentMember?.WorkspaceRole?.RoleName == "Owner";
+            var hasModeratePermission = await _context.RolePermissions
+                .AnyAsync(rp => rp.WorkspaceRoleID == currentMember!.WorkspaceRoleID && rp.PermissionID == TaskPermissionIds.Update);
+
+            if (comment.MemberID != currentMemberId && !isOwner && !hasModeratePermission)
+                throw new UnauthorizedAccessException("Ban khong co quyen sua binh luan nay.");
+
+            comment.Content = content;
+            comment.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            return new TaskCommentResponse
+            {
+                CommentId = comment.CommentID,
+                TaskId = comment.TaskID,
+                MemberId = comment.MemberID,
+                MemberName = comment.WorkspaceMember?.Resource?.FullName ?? string.Empty,
+                MemberAvatarUrl = comment.WorkspaceMember?.Resource?.AvatarURL,
+                ParentCommentId = comment.ParentCommentID,
+                Content = comment.Content,
+                CreatedAt = comment.CreatedAt,
+                UpdatedAt = comment.UpdatedAt
+            };
+        }
+
+        public async Task DeleteTaskCommentAsync(int accountId, int commentId)
+        {
+            var comment = await _context.TaskComments
+                .Include(c => c.Task)
+                    .ThenInclude(t => t.Project)
+                .FirstOrDefaultAsync(c => c.CommentID == commentId);
+
+            if (comment == null)
+                throw new KeyNotFoundException("Khong tim thay binh luan.");
+
+            var workspaceId = comment.Task!.Project!.WorkspaceID;
+            var currentMemberId = await GetWorkspaceMemberIdAsync(accountId, workspaceId);
+
+            var currentMember = await _context.WorkspaceMembers
+                .Include(m => m.WorkspaceRole)
+                .FirstOrDefaultAsync(m => m.WorkspaceMemberID == currentMemberId);
+
+            var isOwner = currentMember?.WorkspaceRole?.RoleName == "Owner";
+            var hasModeratePermission = await _context.RolePermissions
+                .AnyAsync(rp => rp.WorkspaceRoleID == currentMember!.WorkspaceRoleID && rp.PermissionID == TaskPermissionIds.Update);
+
+            if (comment.MemberID != currentMemberId && !isOwner && !hasModeratePermission)
+                throw new UnauthorizedAccessException("Ban khong co quyen xoa binh luan nay.");
+
+            var deletedAt = DateTime.UtcNow;
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                await _context.TaskComments
+                    .Where(c => c.CommentID == commentId || c.ParentCommentID == commentId)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(c => c.IsDeleted, true)
+                        .SetProperty(c => c.DeletedAt, deletedAt)
+                        .SetProperty(c => c.DeletedBy, accountId));
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<List<TaskAssetResponse>> GetTaskAssetsAsync(ProjectTask task)
+        {
+            return await _context.TaskAssets
+                .Include(ta => ta.Asset)
+                .Include(ta => ta.AttachedByMember)
+                    .ThenInclude(m => m.Resource)
+                .AsNoTracking()
+                .Where(ta => ta.TaskID == task.TaskID && ta.Asset != null && !ta.Asset.IsDeleted)
+                .OrderByDescending(ta => ta.AttachedAt)
+                .Select(ta => new TaskAssetResponse
+                {
+                    AssetId = ta.AssetID,
+                    AssetName = ta.Asset!.AssetName,
+                    AssetType = ta.Asset.AssetType,
+                    FileSizeKB = ta.Asset.FileSizeKB,
+                    AttachedBy = ta.AttachedBy,
+                    AttachedByName = ta.AttachedByMember!.Resource!.FullName,
+                    AttachedAt = ta.AttachedAt
+                })
+                .ToListAsync();
+        }
+
+        public async Task<List<TaskAssetResponse>> AttachTaskAssetsAsync(
+            int accountId,
+            ProjectTask task,
+            AttachTaskAssetRequest request)
+        {
+            if (request.AssetIds == null || !request.AssetIds.Any())
+                throw new ArgumentException("Danh sach AssetIds khong duoc rong.");
+
+            var uniqueAssetIds = request.AssetIds.Distinct().ToList();
+
+            var validAssets = await _context.ProjectAssets
+                .AsNoTracking()
+                .Where(a => uniqueAssetIds.Contains(a.AssetID) && a.ProjectID == task.ProjectID)
+                .ToListAsync();
+
+            if (validAssets.Count != uniqueAssetIds.Count)
+                throw new ArgumentException("Mot hoac nhieu Asset khong hop le (khong ton tai, da bi xoa hoac thuoc project khac).");
+
+            var existingLinks = await _context.TaskAssets
+                .AsNoTracking()
+                .Where(ta => ta.TaskID == task.TaskID && uniqueAssetIds.Contains(ta.AssetID))
+                .Select(ta => ta.AssetID)
+                .ToListAsync();
+
+            var newAssetIds = uniqueAssetIds.Except(existingLinks).ToList();
+            if (!newAssetIds.Any())
+                return await GetTaskAssetsAsync(task);
+
+            var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+            var memberId = await GetWorkspaceMemberIdAsync(accountId, taskWorkspaceId);
+
+            var newAttachments = newAssetIds.Select(id => new TaskAsset
+            {
+                TaskID = task.TaskID,
+                AssetID = id,
+                AttachedBy = memberId,
+                AttachedAt = DateTime.UtcNow
+            }).ToList();
+
+            _context.TaskAssets.AddRange(newAttachments);
+            await _context.SaveChangesAsync();
+
+            return await GetTaskAssetsAsync(task);
+        }
+
+        public async Task DetachTaskAssetAsync(
+            int accountId,
+            ProjectTask task,
+            int assetId)
+        {
+            var deletedCount = await _context.TaskAssets
+                .Where(ta => ta.TaskID == task.TaskID && ta.AssetID == assetId)
+                .ExecuteDeleteAsync();
+
+            if (deletedCount == 0)
+                throw new KeyNotFoundException("Khong tim thay lien ket tai lieu voi task.");
+        }
+
+        private async Task<int> GetWorkspaceMemberIdAsync(int accountId, int workspaceId)
+        {
+            var member = await _context.WorkspaceMembers
+                .Include(m => m.Resource)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.WorkspaceID == workspaceId && m.Resource.AccountID == accountId && !m.Resource.IsDeleted && m.Status == "Active");
+
+            if (member == null)
+                throw new UnauthorizedAccessException("Thanh vien khong thuoc workspace nay.");
+
+            return member.WorkspaceMemberID;
         }
 
         private static void ValidateTaskDates(

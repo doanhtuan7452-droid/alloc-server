@@ -32,5 +32,33 @@ namespace AllocServer.Interfaces.Tasks
             CreateTaskDependencyRequest request);
 
         Task DeleteProjectTaskAsync(int accountId, ProjectTask task);
+
+        // Comments
+        Task<List<TaskCommentResponse>> GetTaskCommentsAsync(ProjectTask task);
+        
+        Task<TaskCommentResponse> CreateTaskCommentAsync(
+            int accountId, 
+            ProjectTask task, 
+            CreateTaskCommentRequest request);
+            
+        Task<TaskCommentResponse> UpdateTaskCommentAsync(
+            int accountId, 
+            int commentId, 
+            UpdateTaskCommentRequest request);
+            
+        Task DeleteTaskCommentAsync(int accountId, int commentId);
+
+        // Assets
+        Task<List<TaskAssetResponse>> GetTaskAssetsAsync(ProjectTask task);
+        
+        Task<List<TaskAssetResponse>> AttachTaskAssetsAsync(
+            int accountId, 
+            ProjectTask task, 
+            AttachTaskAssetRequest request);
+            
+        Task DetachTaskAssetAsync(
+            int accountId, 
+            ProjectTask task, 
+            int assetId);
     }
 }

@@ -209,6 +209,155 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay danh sach comment cua task.</summary>
+        [HttpGet("{taskId}/comments")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.View)]
+        [ProducesResponseType(typeof(List<TaskCommentResponse>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetTaskComments(int taskId)
+        {
+            if (!TryGetCurrentTask(out var task))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
+            }
+
+            var response = await _taskService.GetTaskCommentsAsync(task);
+            return Ok(response);
+        }
+
+        /// <summary>Tao moi comment.</summary>
+        [HttpPost("{taskId}/comments")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.Update)]
+        [ProducesResponseType(typeof(TaskCommentResponse), StatusCodes.Status201Created)]
+        public async Task<IActionResult> CreateTaskComment(
+            int taskId,
+            [FromBody] CreateTaskCommentRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            if (!TryGetCurrentTask(out var task))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
+            }
+
+            try
+            {
+                var response = await _taskService.CreateTaskCommentAsync(accountId, task, request);
+                return StatusCode(201, response);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay danh sach tai lieu cua task.</summary>
+        [HttpGet("{taskId}/assets")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.View)]
+        [ProducesResponseType(typeof(List<TaskAssetResponse>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetTaskAssets(int taskId)
+        {
+            if (!TryGetCurrentTask(out var task))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
+            }
+
+            var response = await _taskService.GetTaskAssetsAsync(task);
+            return Ok(response);
+        }
+
+        /// <summary>Gan tai lieu vao task.</summary>
+        [HttpPost("{taskId}/assets")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.Update)]
+        [ProducesResponseType(typeof(List<TaskAssetResponse>), StatusCodes.Status201Created)]
+        public async Task<IActionResult> AttachTaskAssets(
+            int taskId,
+            [FromBody] AttachTaskAssetRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            if (!TryGetCurrentTask(out var task))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
+            }
+
+            try
+            {
+                var response = await _taskService.AttachTaskAssetsAsync(accountId, task, request);
+                return StatusCode(201, response);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Go tai lieu khoi task.</summary>
+        [HttpDelete("{taskId}/assets/{assetId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.Update)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> DetachTaskAsset(
+            int taskId,
+            int assetId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            if (!TryGetCurrentTask(out var task))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
+            }
+
+            try
+            {
+                await _taskService.DetachTaskAssetAsync(accountId, task, assetId);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
         private bool TryGetCurrentTask(out ProjectTask task)
         {
             if (HttpContext.Items.TryGetValue(TaskAuthorizeAttribute.CurrentTaskItemKey, out var item)

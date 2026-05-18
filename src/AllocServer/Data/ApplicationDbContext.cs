@@ -35,6 +35,7 @@ namespace AllocServer.Data
         public DbSet<LeaveRequest> LeaveRequests { get; set; }
         public DbSet<OTRequest> OTRequests { get; set; }
         public DbSet<TaskComment> TaskComments { get; set; }
+        public DbSet<TaskAsset> TaskAssets { get; set; }
         public DbSet<TaskAssignee> TaskAssignees { get; set; }
         public DbSet<TaskDependency> TaskDependencies { get; set; }
         public DbSet<Message> Messages { get; set; }
@@ -331,6 +332,48 @@ namespace AllocServer.Data
                     taskDependency.DependencyType
                 })
                 .IsUnique();
+
+            // TaskComment - FK relationships
+            modelBuilder.Entity<TaskComment>()
+                .HasOne(c => c.Task)
+                .WithMany()
+                .HasForeignKey(c => c.TaskID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TaskComment>()
+                .HasOne(c => c.WorkspaceMember)
+                .WithMany()
+                .HasForeignKey(c => c.MemberID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TaskComment>()
+                .HasOne(c => c.ParentComment)
+                .WithMany(c => c.Replies)
+                .HasForeignKey(c => c.ParentCommentID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // TaskAsset - Composite Key and FK relationships
+            modelBuilder.Entity<TaskAsset>()
+                .HasKey(ta => new { ta.TaskID, ta.AssetID });
+
+            modelBuilder.Entity<TaskAsset>()
+                .HasOne(ta => ta.Task)
+                .WithMany()
+                .HasForeignKey(ta => ta.TaskID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TaskAsset>()
+                .HasOne(ta => ta.Asset)
+                .WithMany()
+                .HasForeignKey(ta => ta.AssetID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<TaskAsset>()
+                .HasOne(ta => ta.AttachedByMember)
+                .WithMany()
+                .HasForeignKey(ta => ta.AttachedBy)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }
+
