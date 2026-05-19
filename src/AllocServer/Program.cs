@@ -184,6 +184,7 @@ await SeedRiskPermissionsAsync(app.Services);
 await SeedAIPermissionsAsync(app.Services);
 await SeedAssetPermissionsAsync(app.Services);
 await SeedTaskPermissionsAsync(app.Services);
+await SeedConversationPermissionsAsync(app.Services);
 
 // ============================================================
 // HTTP Pipeline
@@ -693,6 +694,67 @@ static async Task SeedTaskPermissionsAsync(IServiceProvider services)
         {
             PermissionID = TaskPermissionIds.Delete,
             DisplayName = "Delete project tasks"
+        }
+    };
+
+    foreach (var permission in permissions)
+    {
+        var existingPermission = await dbContext.WorkspacePermissions
+            .FirstOrDefaultAsync(item => item.PermissionID == permission.PermissionID);
+
+        if (existingPermission == null)
+        {
+            dbContext.WorkspacePermissions.Add(permission);
+        }
+        else
+        {
+            existingPermission.DisplayName = permission.DisplayName;
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+
+    var ownerRoleIds = await dbContext.WorkspaceRoles
+        .Where(role =>
+            role.RoleName == "Owner"
+            && !role.IsDeleted)
+        .Select(role => role.WorkspaceRoleID)
+        .ToListAsync();
+
+    foreach (var ownerRoleId in ownerRoleIds)
+    {
+        foreach (var permission in permissions)
+        {
+            var exists = await dbContext.RolePermissions
+                .AnyAsync(item =>
+                    item.WorkspaceRoleID == ownerRoleId
+                    && item.PermissionID == permission.PermissionID);
+
+            if (!exists)
+            {
+                dbContext.RolePermissions.Add(new RolePermission
+                {
+                    WorkspaceRoleID = ownerRoleId,
+                    PermissionID = permission.PermissionID
+                });
+            }
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+}
+
+static async Task SeedConversationPermissionsAsync(IServiceProvider services)
+{
+    using var scope = services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    var permissions = new[]
+    {
+        new WorkspacePermission
+        {
+            PermissionID = ConversationPermissionIds.Manage,
+            DisplayName = "Manage workspace conversations"
         }
     };
 

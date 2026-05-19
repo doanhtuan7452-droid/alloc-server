@@ -10,11 +10,19 @@ namespace AllocServer.Models
         public int MessageID { get; set; }
 
         public int ConversationID { get; set; }
+        public int SenderID { get; set; }
+        public string? Content { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public bool IsEdited { get; set; }
 
         public bool IsDeleted { get; set; }
-
         public DateTime? DeletedAt { get; set; }
-
         public int? DeletedBy { get; set; }
+
+        [ForeignKey("ConversationID")]
+        public virtual Conversation? Conversation { get; set; }
+
+        [ForeignKey("SenderID")]
+        public virtual WorkspaceMember? Sender { get; set; }
     }
 }

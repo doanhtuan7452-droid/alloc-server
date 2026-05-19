@@ -31,6 +31,7 @@ namespace AllocServer.Data
         public DbSet<RiskMitigation> RiskMitigations { get; set; }
         public DbSet<RiskLifecycle> RiskLifecycles { get; set; }
         public DbSet<Conversation> Conversations { get; set; }
+        public DbSet<ConversationMember> ConversationMembers { get; set; }
         public DbSet<Timesheet> Timesheets { get; set; }
         public DbSet<LeaveRequest> LeaveRequests { get; set; }
         public DbSet<OTRequest> OTRequests { get; set; }
@@ -39,6 +40,7 @@ namespace AllocServer.Data
         public DbSet<TaskAssignee> TaskAssignees { get; set; }
         public DbSet<TaskDependency> TaskDependencies { get; set; }
         public DbSet<Message> Messages { get; set; }
+        public DbSet<MessageAsset> MessageAssets { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -77,6 +79,11 @@ namespace AllocServer.Data
             modelBuilder.Entity<Conversation>()
                 .HasQueryFilter(c => !c.IsDeleted);
 
+            modelBuilder.Entity<Conversation>()
+                .HasIndex(c => c.ConversationKey)
+                .IsUnique()
+                .HasFilter("[ConversationKey] IS NOT NULL AND [IsDeleted] = 0");
+
             modelBuilder.Entity<Timesheet>()
                 .HasQueryFilter(t => !t.IsDeleted);
 
@@ -91,6 +98,31 @@ namespace AllocServer.Data
 
             modelBuilder.Entity<Message>()
                 .HasQueryFilter(m => !m.IsDeleted);
+
+            // Explicit FK constraints
+            modelBuilder.Entity<Conversation>()
+                .HasOne(c => c.Workspace)
+                .WithMany()
+                .HasForeignKey(c => c.WorkspaceID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Conversation>()
+                .HasOne(c => c.Project)
+                .WithMany()
+                .HasForeignKey(c => c.ProjectID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Message>()
+                .HasOne(m => m.Conversation)
+                .WithMany()
+                .HasForeignKey(m => m.ConversationID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Message>()
+                .HasOne(m => m.Sender)
+                .WithMany()
+                .HasForeignKey(m => m.SenderID)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // WorkspaceCurrentLimit maps to a View
             modelBuilder.Entity<WorkspaceCurrentLimit>()
@@ -372,6 +404,42 @@ namespace AllocServer.Data
                 .HasOne(ta => ta.AttachedByMember)
                 .WithMany()
                 .HasForeignKey(ta => ta.AttachedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ConversationMember - Composite Key, FKs, and Index
+            modelBuilder.Entity<ConversationMember>()
+                .HasKey(cm => new { cm.ConversationID, cm.MemberID });
+
+            modelBuilder.Entity<ConversationMember>()
+                .HasOne(cm => cm.Conversation)
+                .WithMany()
+                .HasForeignKey(cm => cm.ConversationID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ConversationMember>()
+                .HasOne(cm => cm.WorkspaceMember)
+                .WithMany()
+                .HasForeignKey(cm => cm.MemberID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ConversationMember>()
+                .HasIndex(cm => new { cm.MemberID, cm.ConversationID })
+                .HasDatabaseName("IX_ConversationMembers_MemberID_ConversationID");
+
+            // MessageAsset - Composite Key and FKs
+            modelBuilder.Entity<MessageAsset>()
+                .HasKey(ma => new { ma.MessageID, ma.AssetID });
+
+            modelBuilder.Entity<MessageAsset>()
+                .HasOne(ma => ma.Message)
+                .WithMany()
+                .HasForeignKey(ma => ma.MessageID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<MessageAsset>()
+                .HasOne(ma => ma.Asset)
+                .WithMany()
+                .HasForeignKey(ma => ma.AssetID)
                 .OnDelete(DeleteBehavior.Restrict);
         }
     }
