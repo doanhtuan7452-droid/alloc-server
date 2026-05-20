@@ -10,6 +10,11 @@ namespace AllocServer.Interfaces.ProjectAssets
             Project project,
             UploadAssetRequestDto request);
 
+        Task<ProjectAssetResponseDto> UploadWorkspaceAssetAsync(
+            int accountId,
+            int workspaceId,
+            UploadAssetRequestDto request);
+
         Task<PagedProjectAssetsResponse> GetProjectAssetsAsync(
             Project project,
             GetProjectAssetsQuery query);

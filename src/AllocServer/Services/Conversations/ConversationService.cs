@@ -1,18 +1,25 @@
 using AllocServer.Data;
 using AllocServer.DTOs.Conversations;
+using AllocServer.DTOs.Messages;
+using AllocServer.Hubs;
 using AllocServer.Interfaces.Conversations;
 using AllocServer.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.SignalR;
 
 namespace AllocServer.Services.Conversations
 {
     public class ConversationService : IConversationService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IHubContext<ConversationHub> _hubContext;
 
-        public ConversationService(ApplicationDbContext context)
+        public ConversationService(
+            ApplicationDbContext context,
+            IHubContext<ConversationHub> hubContext)
         {
             _context = context;
+            _hubContext = hubContext;
         }
 
         private async Task<WorkspaceMember> GetCurrentWorkspaceMemberAsync(int accountId, int workspaceId)
@@ -169,9 +176,10 @@ namespace AllocServer.Services.Conversations
                     
                     // Retrieve the last message
                     LastMessage = _context.Messages
+                        .IgnoreQueryFilters()
                         .Where(m => m.ConversationID == cm.ConversationID)
                         .OrderByDescending(m => m.CreatedAt)
-                        .Select(m => new { m.Content, m.CreatedAt })
+                        .Select(m => new { m.Content, m.CreatedAt, m.IsDeleted })
                         .FirstOrDefault(),
 
                     // Calculate Unread Count
@@ -190,6 +198,7 @@ namespace AllocServer.Services.Conversations
 
                     // Sort column
                     SortAt = _context.Messages
+                        .IgnoreQueryFilters()
                         .Where(m => m.ConversationID == cm.ConversationID)
                         .Max(m => (DateTime?)m.CreatedAt) ?? cm.Conversation.CreatedAt
                 })
@@ -204,7 +213,11 @@ namespace AllocServer.Services.Conversations
                     ProjectId = item.ProjectId,
                     Name = item.Type == "Direct" ? (item.OtherMemberName ?? "Unknown User") : item.Name,
                     Type = item.Type,
-                    LastMessageContent = item.LastMessage?.Content,
+                    LastMessageContent = item.LastMessage == null
+                        ? null
+                        : item.LastMessage.IsDeleted
+                            ? "[Tin nhan da thu hoi]"
+                            : item.LastMessage.Content,
                     LastMessageAt = item.LastMessage?.CreatedAt,
                     UnreadCount = item.UnreadCount
                 },
@@ -266,6 +279,118 @@ namespace AllocServer.Services.Conversations
             };
         }
 
+        public async Task<List<MessageResponse>> GetConversationMessagesAsync(
+            int accountId,
+            int conversationId,
+            GetConversationMessagesQuery query)
+        {
+            await LoadConversationAccessAsync(accountId, conversationId);
+
+            var pageSize = Math.Clamp(query.PageSize, 1, 100);
+            var keyword = NormalizeOptionalString(query.Keyword);
+
+            var messagesQuery = _context.Messages
+                .IgnoreQueryFilters()
+                .Include(message => message.Sender)
+                    .ThenInclude(sender => sender!.Resource)
+                .Include(message => message.MessageAssets)
+                    .ThenInclude(messageAsset => messageAsset.Asset)
+                .AsNoTracking()
+                .Where(message => message.ConversationID == conversationId);
+
+            if (query.BeforeMessageId.HasValue)
+            {
+                messagesQuery = messagesQuery.Where(message => message.MessageID < query.BeforeMessageId.Value);
+            }
+
+            if (keyword != null)
+            {
+                messagesQuery = messagesQuery.Where(message =>
+                    !message.IsDeleted
+                    && message.Content != null
+                    && message.Content.Contains(keyword));
+            }
+
+            var messages = await messagesQuery
+                .OrderByDescending(message => message.MessageID)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return messages
+                .OrderBy(message => message.MessageID)
+                .Select(MapMessageResponse)
+                .ToList();
+        }
+
+        public async Task<MessageResponse> SendMessageAsync(
+            int accountId,
+            int conversationId,
+            CreateMessageRequest request)
+        {
+            var (conversation, currentMember, _, _) = await LoadConversationAccessAsync(
+                accountId,
+                conversationId,
+                asTracking: false);
+
+            var content = NormalizeOptionalString(request.Content);
+            var assetIds = request.AssetIds?
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList() ?? new List<int>();
+
+            if (content == null && assetIds.Count == 0)
+            {
+                throw new ArgumentException("Tin nhan phai co noi dung hoac tai lieu dinh kem.");
+            }
+
+            if (assetIds.Count > 0)
+            {
+                await ValidateMessageAssetsAsync(conversation, assetIds);
+            }
+
+            Message message;
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                message = new Message
+                {
+                    ConversationID = conversationId,
+                    SenderID = currentMember.WorkspaceMemberID,
+                    Content = content,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _context.Messages.Add(message);
+                await _context.SaveChangesAsync();
+
+                if (assetIds.Count > 0)
+                {
+                    var messageAssets = assetIds.Select(assetId => new MessageAsset
+                    {
+                        MessageID = message.MessageID,
+                        AssetID = assetId
+                    });
+
+                    _context.MessageAssets.AddRange(messageAssets);
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            var response = await LoadMessageResponseAsync(message.MessageID, includeDeleted: false);
+            await _hubContext.Clients
+                .Group(ConversationHub.BuildConversationGroup(conversationId))
+                .SendAsync("MessageCreated", response);
+
+            return response;
+        }
+
         public async Task MarkConversationAsReadAsync(int accountId, int conversationId)
         {
             var member = await _context.ConversationMembers
@@ -281,6 +406,21 @@ namespace AllocServer.Services.Conversations
 
             member.LastReadAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            var payload = new
+            {
+                ConversationId = conversationId,
+                MemberId = member.MemberID,
+                LastReadAt = member.LastReadAt
+            };
+
+            await _hubContext.Clients
+                .Group(ConversationHub.BuildConversationGroup(conversationId))
+                .SendAsync("ConversationRead", payload);
+
+            await _hubContext.Clients
+                .Group(ConversationHub.BuildUserGroup(member.MemberID))
+                .SendAsync("ConversationRead", payload);
         }
         private async Task<(Conversation Conversation, WorkspaceMember CurrentMember, string RoleName, int WorkspaceRoleId)> LoadConversationAccessAsync(int accountId, int conversationId, bool asTracking = false)
         {
@@ -324,6 +464,76 @@ namespace AllocServer.Services.Conversations
 
             return await _context.RolePermissions
                 .AnyAsync(rp => rp.WorkspaceRoleID == workspaceRoleId && rp.PermissionID == Filters.ConversationPermissionIds.Manage);
+        }
+
+        private async Task ValidateMessageAssetsAsync(Conversation conversation, List<int> assetIds)
+        {
+            var validAssetCount = await _context.ProjectAssets
+                .AsNoTracking()
+                .CountAsync(asset =>
+                    assetIds.Contains(asset.AssetID)
+                    && asset.WorkspaceID == conversation.WorkspaceID
+                    && (conversation.Type == "Project_Channel"
+                        ? asset.ProjectID == conversation.ProjectID
+                        : asset.ProjectID == null));
+
+            if (validAssetCount != assetIds.Count)
+            {
+                throw new ArgumentException("Mot hoac nhieu tai lieu dinh kem khong hop le cho hoi thoai nay.");
+            }
+        }
+
+        private async Task<MessageResponse> LoadMessageResponseAsync(int messageId, bool includeDeleted)
+        {
+            var query = includeDeleted
+                ? _context.Messages.IgnoreQueryFilters()
+                : _context.Messages.AsQueryable();
+
+            var message = await query
+                .Include(item => item.Sender)
+                    .ThenInclude(sender => sender!.Resource)
+                .Include(item => item.MessageAssets)
+                    .ThenInclude(messageAsset => messageAsset.Asset)
+                .AsNoTracking()
+                .FirstAsync(item => item.MessageID == messageId);
+
+            return MapMessageResponse(message);
+        }
+
+        private static MessageResponse MapMessageResponse(Message message)
+        {
+            return new MessageResponse
+            {
+                MessageId = message.MessageID,
+                ConversationId = message.ConversationID,
+                SenderId = message.SenderID,
+                SenderName = message.Sender?.Resource?.FullName,
+                SenderAvatarUrl = message.Sender?.Resource?.AvatarURL,
+                Content = message.IsDeleted ? "[Tin nhan da thu hoi]" : message.Content,
+                CreatedAt = message.CreatedAt,
+                IsEdited = message.IsEdited,
+                IsDeleted = message.IsDeleted,
+                Assets = message.IsDeleted
+                    ? null
+                    : message.MessageAssets
+                        .Where(messageAsset => messageAsset.Asset != null)
+                        .Select(messageAsset => new AssetResponse
+                        {
+                            AssetId = messageAsset.AssetID,
+                            AssetName = messageAsset.Asset!.AssetName,
+                            AssetType = messageAsset.Asset.AssetType,
+                            FileSizeKB = messageAsset.Asset.FileSizeKB,
+                            CreatedAt = messageAsset.Asset.CreatedAt
+                        })
+                        .ToList()
+            };
+        }
+
+        private static string? NormalizeOptionalString(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? null
+                : value.Trim();
         }
 
         public async Task<ConversationDetailResponse> RenameConversationAsync(int accountId, int conversationId, UpdateConversationNameRequest request)

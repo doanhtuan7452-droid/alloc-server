@@ -1,5 +1,6 @@
 using AllocServer.DTOs.Common;
 using AllocServer.DTOs.Conversations;
+using AllocServer.DTOs.Messages;
 using AllocServer.Filters;
 using AllocServer.Interfaces.Conversations;
 using Microsoft.AspNetCore.Authorization;
@@ -125,6 +126,79 @@ namespace AllocServer.Controllers
             }
         }
 
+        [HttpGet("conversations/{conversationId}/messages")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProducesResponseType(typeof(List<MessageResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetConversationMessages(
+            int conversationId,
+            [FromQuery] GetConversationMessagesQuery query)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var messages = await _conversationService.GetConversationMessagesAsync(
+                    accountId,
+                    conversationId,
+                    query);
+
+                return Ok(messages);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        [HttpPost("conversations/{conversationId}/messages")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> SendMessage(
+            int conversationId,
+            [FromBody] CreateMessageRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var message = await _conversationService.SendMessageAsync(
+                    accountId,
+                    conversationId,
+                    request);
+
+                return StatusCode(201, message);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        [HttpPut("conversations/{conversationId}/read")]
         [HttpPost("conversations/{conversationId}/read")]
         [Authorize]
         [RequireActiveAccount]

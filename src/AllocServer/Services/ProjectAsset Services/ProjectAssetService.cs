@@ -88,6 +88,7 @@ namespace AllocServer.Services.ProjectAsset_Services
                 var now = DateTime.UtcNow;
                 var asset = new ProjectAsset
                 {
+                    WorkspaceID = project.WorkspaceID,
                     ProjectID = project.ProjectID,
                     UploadedBy = uploaderMembership.WorkspaceMemberID,
                     AssetType = assetType,
@@ -110,6 +111,78 @@ namespace AllocServer.Services.ProjectAsset_Services
                 return new ProjectAssetResponseDto
                 {
                     AssetID = asset.AssetID,
+                    ProjectID = asset.ProjectID,
+                    WorkspaceID = asset.WorkspaceID,
+                    AssetName = asset.AssetName,
+                    AssetType = asset.AssetType,
+                    FileSizeKB = asset.FileSizeKB,
+                    UploadedBy = asset.UploadedBy,
+                    UploadedByName = uploaderMembership.FullName,
+                    CreatedAt = asset.CreatedAt
+                };
+            }
+            catch
+            {
+                await TryDeleteUploadedBlobAsync(storageStrategy, blobPath);
+                throw;
+            }
+        }
+
+        public async Task<ProjectAssetResponseDto> UploadWorkspaceAssetAsync(
+            int accountId,
+            int workspaceId,
+            UploadAssetRequestDto request)
+        {
+            await EnsurePermissionAsync(accountId, workspaceId, AssetPermissionIds.Create);
+
+            var file = ValidateUploadFile(request.File);
+            var fileName = SanitizeFileName(file.FileName);
+            var extension = Path.GetExtension(fileName);
+            var assetType = ResolveAssetType(extension);
+            var contentType = string.IsNullOrWhiteSpace(file.ContentType)
+                ? "application/octet-stream"
+                : file.ContentType;
+
+            var uploaderMembership = await ResolveActiveMembershipAsync(accountId, workspaceId);
+            var blobPath = BuildWorkspaceBlobPath(workspaceId, fileName);
+            var storageStrategy = _storageFactory.Create();
+
+            await using (var fileStream = file.OpenReadStream())
+            {
+                await storageStrategy.UploadFileAsync(fileStream, contentType, blobPath);
+            }
+
+            try
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync();
+
+                var now = DateTime.UtcNow;
+                var asset = new ProjectAsset
+                {
+                    WorkspaceID = workspaceId,
+                    ProjectID = null,
+                    UploadedBy = uploaderMembership.WorkspaceMemberID,
+                    AssetType = assetType,
+                    AssetName = fileName,
+                    AssetURL = blobPath,
+                    FileSizeKB = CalculateFileSizeKB(file.Length),
+                    CreatedAt = now
+                };
+
+                _context.ProjectAssets.Add(asset);
+                await _context.SaveChangesAsync();
+
+                await AddMonthlyUploadUsageAsync(
+                    workspaceId,
+                    GetCurrentBillingMonth(now),
+                    CalculateFileSizeMB(file.Length));
+
+                await transaction.CommitAsync();
+
+                return new ProjectAssetResponseDto
+                {
+                    AssetID = asset.AssetID,
+                    WorkspaceID = asset.WorkspaceID,
                     ProjectID = asset.ProjectID,
                     AssetName = asset.AssetName,
                     AssetType = asset.AssetType,
@@ -164,6 +237,7 @@ namespace AllocServer.Services.ProjectAsset_Services
                 {
                     AssetID = asset.AssetID,
                     ProjectID = asset.ProjectID,
+                    WorkspaceID = asset.WorkspaceID,
                     AssetName = asset.AssetName,
                     AssetType = asset.AssetType,
                     FileSizeKB = asset.FileSizeKB,
@@ -233,12 +307,12 @@ namespace AllocServer.Services.ProjectAsset_Services
             var query = _context.ProjectAssets
                 .Include(asset => asset.Project)
                     .ThenInclude(project => project!.Workspace)
+                .Include(asset => asset.Workspace)
                 .Where(asset =>
                     asset.AssetID == assetId
-                    && asset.Project != null
-                    && asset.Project.Workspace != null
-                    && !asset.Project.IsDeleted
-                    && !asset.Project.Workspace.IsDeleted);
+                    && asset.Workspace != null
+                    && !asset.Workspace.IsDeleted
+                    && (asset.Project == null || !asset.Project.IsDeleted));
 
             if (!asTracking)
             {
@@ -246,14 +320,14 @@ namespace AllocServer.Services.ProjectAsset_Services
             }
 
             var asset = await query.FirstOrDefaultAsync();
-            if (asset == null || asset.Project == null)
+            if (asset == null)
             {
                 throw new KeyNotFoundException("Khong tim thay Asset.");
             }
 
             await EnsurePermissionAsync(
                 accountId,
-                asset.Project.WorkspaceID,
+                asset.WorkspaceID,
                 requiredPermissionId);
 
             return asset;
@@ -399,6 +473,13 @@ WHERE WorkspaceID = {workspaceId}
             string fileName)
         {
             return $"workspaces/{workspaceId}/projects/{projectId}/assets/{Guid.NewGuid():N}_{fileName}";
+        }
+
+        private static string BuildWorkspaceBlobPath(
+            int workspaceId,
+            string fileName)
+        {
+            return $"workspaces/{workspaceId}/assets/{Guid.NewGuid():N}_{fileName}";
         }
 
         private static int CalculateFileSizeKB(long fileSizeBytes)

@@ -24,5 +24,7 @@ namespace AllocServer.Models
 
         [ForeignKey("SenderID")]
         public virtual WorkspaceMember? Sender { get; set; }
+
+        public virtual ICollection<MessageAsset> MessageAssets { get; set; } = new List<MessageAsset>();
     }
 }

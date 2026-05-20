@@ -270,6 +270,12 @@ namespace AllocServer.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<ProjectAsset>()
+                .HasOne(asset => asset.Workspace)
+                .WithMany()
+                .HasForeignKey(asset => asset.WorkspaceID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectAsset>()
                 .HasOne(asset => asset.Project)
                 .WithMany()
                 .HasForeignKey(asset => asset.ProjectID)
@@ -280,6 +286,14 @@ namespace AllocServer.Data
                 .WithMany()
                 .HasForeignKey(asset => asset.UploadedBy)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ProjectAsset>()
+                .HasIndex(asset => new
+                {
+                    asset.WorkspaceID,
+                    asset.ProjectID
+                })
+                .HasFilter("[IsDeleted] = 0");
 
             modelBuilder.Entity<ProjectAsset>()
                 .Property(asset => asset.AssetType)
@@ -432,7 +446,7 @@ namespace AllocServer.Data
 
             modelBuilder.Entity<MessageAsset>()
                 .HasOne(ma => ma.Message)
-                .WithMany()
+                .WithMany(message => message.MessageAssets)
                 .HasForeignKey(ma => ma.MessageID)
                 .OnDelete(DeleteBehavior.Restrict);
 

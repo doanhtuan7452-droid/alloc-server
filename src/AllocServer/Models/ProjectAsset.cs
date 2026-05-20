@@ -9,7 +9,12 @@ namespace AllocServer.Models
         [Key]
         public int AssetID { get; set; }
 
-        public int ProjectID { get; set; }
+        public int WorkspaceID { get; set; }
+
+        [ForeignKey("WorkspaceID")]
+        public Workspace? Workspace { get; set; }
+
+        public int? ProjectID { get; set; }
 
         [ForeignKey("ProjectID")]
         public Project? Project { get; set; }

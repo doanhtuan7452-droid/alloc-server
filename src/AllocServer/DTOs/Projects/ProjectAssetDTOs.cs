@@ -34,7 +34,10 @@ namespace AllocServer.DTOs.Projects
         public int AssetID { get; set; }
 
         [JsonPropertyName("projectId")]
-        public int ProjectID { get; set; }
+        public int? ProjectID { get; set; }
+
+        [JsonPropertyName("workspaceId")]
+        public int WorkspaceID { get; set; }
 
         [JsonPropertyName("assetName")]
         public string AssetName { get; set; } = string.Empty;

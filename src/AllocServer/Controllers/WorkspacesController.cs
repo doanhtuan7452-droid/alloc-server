@@ -7,8 +7,10 @@ using System.Security.Claims;
 using System.IdentityModel.Tokens.Jwt;
 using AllocServer.DTOs.Workspaces;
 using AllocServer.DTOs.Common;
+using AllocServer.DTOs.Projects;
 using AllocServer.Data;
 using AllocServer.Exceptions;
+using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Filters;
 
@@ -20,13 +22,16 @@ namespace AllocServer.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IWorkspaceService _workspaceService;
+        private readonly IProjectAssetService _projectAssetService;
 
         public WorkspacesController(
             ApplicationDbContext context,
-            IWorkspaceService workspaceService)
+            IWorkspaceService workspaceService,
+            IProjectAssetService projectAssetService)
         {
             _context = context;
             _workspaceService = workspaceService;
+            _projectAssetService = projectAssetService;
         }
 
         public class CreateWorkspaceRequest
@@ -367,6 +372,47 @@ namespace AllocServer.Controllers
 
             var projects = await _workspaceService.GetWorkspaceProjectsAsync(workspaceId, query);
             return Ok(projects);
+        }
+
+        /// <summary>Upload tai lieu chung cua Workspace de dung cho Direct/Group chat.</summary>
+        [HttpPost("{workspaceId}/assets")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [Consumes("multipart/form-data")]
+        [ProducesResponseType(typeof(ProjectAssetResponseDto), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> UploadWorkspaceAsset(
+            int workspaceId,
+            [FromForm] UploadAssetRequestDto request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var asset = await _projectAssetService.UploadWorkspaceAssetAsync(
+                    accountId,
+                    workspaceId,
+                    request);
+
+                return StatusCode(201, asset);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
         }
 
         /// <summary>Tạo dự án mới trong Workspace.</summary>

@@ -7,8 +7,10 @@ using AllocServer.Middleware;
 using AllocServer.Services;
 using AllocServer.Interfaces.Auth;
 using AllocServer.Interfaces.Commands;
+using AllocServer.Interfaces.Conversations;
 using AllocServer.Interfaces.Expenses;
 using AllocServer.Interfaces.Facade;
+using AllocServer.Interfaces.Messages;
 using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Interfaces.Register;
@@ -20,12 +22,15 @@ using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Timesheets;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Models;
+using AllocServer.Hubs;
 using AllocServer.Services.AI_Services;
 using AllocServer.Services.AIInsight_Services;
 using AllocServer.Services.Auth_Services;
 using AllocServer.Services.Command_Handlers;
+using AllocServer.Services.Conversations;
 using AllocServer.Services.Expense_Services;
 using AllocServer.Services.Facade_Services;
+using AllocServer.Services.Message_Services;
 using AllocServer.Services.ProjectAsset_Services;
 using AllocServer.Services.Project_Services;
 using AllocServer.Services.Revenue_Services;
@@ -81,6 +86,8 @@ builder.Services.AddScoped<ITimesheetService, TimesheetService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IRevenueService, RevenueService>();
 builder.Services.AddScoped<IRiskService, RiskService>();
+builder.Services.AddScoped<IConversationService, ConversationService>();
+builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IProjectAssetService, ProjectAssetService>();
 builder.Services.AddScoped<IAIInsightService, AIInsightService>();
 builder.Services.AddScoped<IAIAnalysisService, AIAnalysisService>();
@@ -165,12 +172,30 @@ builder.Services.AddAuthentication(options =>
         // Không có ClockSkew — token hết hạn là hết ngay (không dung sai thêm)
         ClockSkew = TimeSpan.Zero
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+
+            if (!string.IsNullOrEmpty(accessToken)
+                && path.StartsWithSegments("/hubs/conversation"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        }
+    };
 });
 
 // ============================================================
 // Add services
 // ============================================================
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -208,6 +233,7 @@ app.UseMiddleware<TokenDenylistMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ConversationHub>("/hubs/conversation");
 
 app.Run();
 
