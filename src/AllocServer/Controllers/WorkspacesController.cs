@@ -34,12 +34,6 @@ namespace AllocServer.Controllers
             _projectAssetService = projectAssetService;
         }
 
-        public class CreateWorkspaceRequest
-        {
-            public string Name { get; set; }
-            public string Type { get; set; } // 'Personal', 'Company'
-        }
-
         /// <summary>Lay danh sach Workspace ma user hien tai dang tham gia.</summary>
         [HttpGet]
         [Authorize]
@@ -57,6 +51,7 @@ namespace AllocServer.Controllers
             return Ok(workspaces);
         }
 
+        /// <summary>Tao Workspace moi.</summary>
         [HttpPost]
         [Authorize]
         [ProducesResponseType(typeof(CreateWorkspaceResponse), StatusCodes.Status201Created)]
@@ -132,7 +127,7 @@ namespace AllocServer.Controllers
             }
         }
 
-        // Demo API yêu cầu phân quyền theo Workspace
+        /// <summary>Lay chi tiet Workspace.</summary>
         [HttpGet("{workspaceId}")]
         [Authorize]
         [RequireActiveAccount]
@@ -415,7 +410,7 @@ namespace AllocServer.Controllers
             }
         }
 
-        /// <summary>Tạo dự án mới trong Workspace.</summary>
+        /// <summary>Tao du an moi trong Workspace.</summary>
         [HttpPost("{workspaceId}/Projects")]
         [Authorize]
         [RequireActiveAccount]

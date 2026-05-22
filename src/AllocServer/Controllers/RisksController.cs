@@ -6,6 +6,7 @@ using System.Security.Claims;
 using AllocServer.DTOs.Common;
 using AllocServer.DTOs.Risks;
 using AllocServer.Interfaces.Risks;
+using AllocServer.Constants.Permissions;
 using AllocServer.Filters;
 using AllocServer.Models;
 

@@ -8,55 +8,20 @@ using System.Security.Claims;
 
 namespace AllocServer.Filters
 {
-    public static class ProjectPermissionIds
-    {
-        public const string Update = "project:update";
-        public const string Delete = "project:delete";
-    }
 
-    public static class TaskPermissionIds
-    {
-        public const string View = "task:view";
-        public const string Create = "task:create";
-        public const string Update = "task:update";
-        public const string Delete = "task:delete";
-    }
+    
 
-    public static class TimesheetPermissionIds
-    {
-        public const string ViewAll = "timesheet:view_all";
-        public const string EditAll = "timesheet:edit_all";
-    }
+    
 
-    public static class ExpensePermissionIds
-    {
-        public const string View = "expense:view";
-        public const string Create = "expense:create";
-    }
+    
 
-    public static class RevenuePermissionIds
-    {
-        public const string View = "revenue:view";
-    }
+    
 
-    public static class RiskPermissionIds
-    {
-        public const string View = "risk:view";
-        public const string Create = "risk:create";
-    }
+    
 
-    public static class AIPermissionIds
-    {
-        public const string View = "ai:view";
-        public const string Ask = "ai:ask";
-    }
+    
 
-    public static class AssetPermissionIds
-    {
-        public const string View = "asset:view";
-        public const string Create = "asset:create";
-        public const string Delete = "asset:delete";
-    }
+    
 
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
     public class ProjectAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter

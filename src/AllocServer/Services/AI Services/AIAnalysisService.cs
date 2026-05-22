@@ -1,6 +1,7 @@
 using AllocServer.Data;
 using AllocServer.DTOs.AIInsights;
 using AllocServer.Exceptions;
+using AllocServer.Constants.Permissions;
 using AllocServer.Filters;
 using AllocServer.Interfaces;
 using AllocServer.Interfaces.AI;

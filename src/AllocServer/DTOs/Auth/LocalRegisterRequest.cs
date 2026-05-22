@@ -1,11 +1,11 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace AllocServer.DTOs.Auth
 {
     /// <summary>
     /// DTO dùng cho đăng ký tài khoản Local (Email + Password)
     /// </summary>
-    public class LocalRegister
+    public class LocalRegisterRequest
     {
         [Required(ErrorMessage = "Email là bắt buộc.")]
         [EmailAddress(ErrorMessage = "Email không hợp lệ.")]
@@ -22,17 +22,6 @@ namespace AllocServer.DTOs.Auth
         [Required(ErrorMessage = "Họ tên là bắt buộc.")]
         [StringLength(100, ErrorMessage = "Họ tên không được vượt quá 100 ký tự.")]
         public string FullName { get; set; } = string.Empty;
-
-        public string? DeviceInfo { get; set; }
-    }
-
-    /// <summary>
-    /// DTO dùng cho đăng ký / đăng nhập qua Google (ID Token từ Google Sign-In)
-    /// </summary>
-    public class GoogleRegister
-    {
-        [Required(ErrorMessage = "Google ID Token là bắt buộc.")]
-        public string IdToken { get; set; } = string.Empty;
 
         public string? DeviceInfo { get; set; }
     }

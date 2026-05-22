@@ -94,7 +94,7 @@ namespace AllocServer.Services.Request_Services
             }
 
             var now = DateTime.UtcNow;
-            var otRequest = new OTRequest
+            var otRequest = new OvertimeRequest
             {
                 WorkspaceMemberID = membership.WorkspaceMemberID,
                 TaskID = request.TaskId,

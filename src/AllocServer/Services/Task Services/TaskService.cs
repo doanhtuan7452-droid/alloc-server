@@ -1,5 +1,8 @@
 using AllocServer.Data;
 using AllocServer.DTOs.Tasks;
+using AllocServer.Events;
+using AllocServer.Events.DomainEvents;
+using AllocServer.Constants.Permissions;
 using AllocServer.Filters;
 using AllocServer.Interfaces.Tasks;
 using AllocServer.Models;
@@ -43,10 +46,12 @@ namespace AllocServer.Services.Task_Services
         };
 
         private readonly ApplicationDbContext _context;
+        private readonly IEventPublisher _eventPublisher;
 
-        public TaskService(ApplicationDbContext context)
+        public TaskService(ApplicationDbContext context, IEventPublisher eventPublisher)
         {
             _context = context;
+            _eventPublisher = eventPublisher;
         }
 
         public async Task<PagedProjectTasksResponse> GetProjectTasksAsync(
@@ -251,6 +256,7 @@ namespace AllocServer.Services.Task_Services
         }
 
         public async Task<TaskAssigneeResponse> AssignTaskAssigneeAsync(
+            int accountId,
             ProjectTask task,
             AssignTaskAssigneeRequest request)
         {
@@ -261,6 +267,7 @@ namespace AllocServer.Services.Task_Services
             }
 
             var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+            var assignerMemberId = await GetWorkspaceMemberIdAsync(accountId, taskWorkspaceId);
 
             var isValidMember = await _context.WorkspaceMembers
                 .AsNoTracking()
@@ -300,6 +307,8 @@ namespace AllocServer.Services.Task_Services
 
             _context.TaskAssignees.Add(taskAssignee);
             await _context.SaveChangesAsync();
+
+            await _eventPublisher.PublishAsync(new TaskAssignedEvent(task.TaskID, request.MemberId, assignerMemberId, task.TaskName));
 
             return MapTaskAssignee(taskAssignee);
         }

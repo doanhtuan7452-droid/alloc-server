@@ -15,6 +15,7 @@ using AllocServer.Interfaces.Expenses;
 using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Risks;
 using AllocServer.Interfaces.AIInsights;
+using AllocServer.Constants.Permissions;
 using AllocServer.Filters;
 using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Projects;

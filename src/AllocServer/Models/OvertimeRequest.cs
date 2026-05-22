@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace AllocServer.Models
 {
     [Table("OTRequests")]
-    public class OTRequest
+    public class OvertimeRequest
     {
         [Key]
         public int OTRequestID { get; set; }

@@ -123,14 +123,14 @@ namespace AllocServer.Services.Auth_Services
                 .FirstOrDefaultAsync(a => a.AccountID == accountId);
         }
 
-        public async Task<AccountMeResponse?> GetCurrentAccountProfileAsync(int accountId)
+        public async Task<AccountProfileResponse?> GetCurrentAccountProfileAsync(int accountId)
         {
             return await (
                 from account in _context.Accounts.AsNoTracking()
                 join resource in _context.Resources.AsNoTracking()
                     on account.AccountID equals resource.AccountID
                 where account.AccountID == accountId
-                select new AccountMeResponse
+                select new AccountProfileResponse
                 {
                     AccountID = account.AccountID,
                     Email = account.Email,
@@ -154,7 +154,7 @@ namespace AllocServer.Services.Auth_Services
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<AccountMeResponse?> UpdateCurrentAccountProfileAsync(
+        public async Task<AccountProfileResponse?> UpdateCurrentAccountProfileAsync(
             int accountId,
             UpdateAccountProfileRequest request)
         {

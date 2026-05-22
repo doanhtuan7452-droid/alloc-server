@@ -20,6 +20,7 @@ namespace AllocServer.Interfaces.Tasks
             UpdateProjectTaskRequest request);
 
         Task<TaskAssigneeResponse> AssignTaskAssigneeAsync(
+            int accountId,
             ProjectTask task,
             AssignTaskAssigneeRequest request);
 

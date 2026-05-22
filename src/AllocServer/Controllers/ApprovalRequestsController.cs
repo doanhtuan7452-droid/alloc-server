@@ -11,11 +11,11 @@ namespace AllocServer.Controllers
 {
     [ApiController]
     [Route("api/v1")]
-    public class RequestsController : ControllerBase
+    public class ApprovalRequestsController : ControllerBase
     {
         private readonly IRequestService _requestService;
 
-        public RequestsController(IRequestService requestService)
+        public ApprovalRequestsController(IRequestService requestService)
         {
             _requestService = requestService;
         }

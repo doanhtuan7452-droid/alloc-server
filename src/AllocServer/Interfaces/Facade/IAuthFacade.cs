@@ -13,8 +13,8 @@ namespace AllocServer.Interfaces.Facade
         Task<AuthResponse> LoginAsync(string email, string password, string? deviceInfo, string? ipAddress);
 
         // --- Register (Strategy Pattern) ---
-        Task<RegisterResponse> RegisterLocalAsync(LocalRegister request, string? deviceInfo, string? ipAddress);
-        Task<RegisterResponse> RegisterGoogleAsync(GoogleRegister request, string? deviceInfo, string? ipAddress);
+        Task<RegisterResponse> RegisterLocalAsync(LocalRegisterRequest request, string? deviceInfo, string? ipAddress);
+        Task<RegisterResponse> RegisterGoogleAsync(GoogleRegisterRequest request, string? deviceInfo, string? ipAddress);
 
         // --- Refresh Token (Chain of Responsibility) ---
         Task<AuthResponse> RefreshTokenAsync(string refreshToken, string? deviceInfo, string? ipAddress);

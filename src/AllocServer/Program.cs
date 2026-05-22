@@ -11,6 +11,7 @@ using AllocServer.Interfaces.Conversations;
 using AllocServer.Interfaces.Expenses;
 using AllocServer.Interfaces.Facade;
 using AllocServer.Interfaces.Messages;
+using AllocServer.Interfaces.Notifications;
 using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Interfaces.Register;
@@ -23,6 +24,7 @@ using AllocServer.Interfaces.Timesheets;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Models;
 using AllocServer.Hubs;
+using AllocServer.Events;
 using AllocServer.Services.AI_Services;
 using AllocServer.Services.AIInsight_Services;
 using AllocServer.Services.Auth_Services;
@@ -31,6 +33,7 @@ using AllocServer.Services.Conversations;
 using AllocServer.Services.Expense_Services;
 using AllocServer.Services.Facade_Services;
 using AllocServer.Services.Message_Services;
+using AllocServer.Services.Notification_Services;
 using AllocServer.Services.ProjectAsset_Services;
 using AllocServer.Services.Project_Services;
 using AllocServer.Services.Revenue_Services;
@@ -43,6 +46,7 @@ using AllocServer.Services.Timesheet_Services;
 using AllocServer.Services.Workspace_Services;
 using AllocServer.Services.Token_Validation_Handlers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using AllocServer.Constants.Permissions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -87,6 +91,10 @@ builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IRevenueService, RevenueService>();
 builder.Services.AddScoped<IRiskService, RiskService>();
 builder.Services.AddScoped<IConversationService, ConversationService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IFirebasePushService, FirebasePushService>();
+builder.Services.AddSingleton<INotificationQueue, NotificationQueue>();
+builder.Services.AddHostedService<NotificationDispatcherService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IProjectAssetService, ProjectAssetService>();
 builder.Services.AddScoped<IAIInsightService, AIInsightService>();
@@ -135,6 +143,28 @@ builder.Services.AddScoped<IAuthFacade, AuthFacade>();
 // ============================================================
 builder.Services.AddScoped<IFeatureQuotaService, FeatureQuotaService>();
 
+// ============================================================
+// Dependency Injection — Event-Driven Framework
+// ============================================================
+builder.Services.AddScoped<IEventPublisher, EventPublisher>();
+
+// Auto-register all IEventHandler<T> implementations
+var eventHandlerTypes = typeof(Program).Assembly.GetTypes()
+    .Where(t => !t.IsAbstract && !t.IsInterface &&
+                t.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEventHandler<>)))
+    .ToList();
+
+foreach (var handlerType in eventHandlerTypes)
+{
+    var interfaces = handlerType.GetInterfaces()
+        .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEventHandler<>));
+
+    foreach (var interfaceType in interfaces)
+    {
+        builder.Services.AddScoped(interfaceType, handlerType);
+    }
+}
+
 // HttpClient cho Google OAuth2 API
 builder.Services.AddHttpClient("Google", client =>
 {
@@ -181,7 +211,7 @@ builder.Services.AddAuthentication(options =>
             var path = context.HttpContext.Request.Path;
 
             if (!string.IsNullOrEmpty(accessToken)
-                && path.StartsWithSegments("/hubs/conversation"))
+                && (path.StartsWithSegments("/hubs/conversation") || path.StartsWithSegments("/hubs/notifications")))
             {
                 context.Token = accessToken;
             }
@@ -197,7 +227,11 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    var xmlFilename = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    options.IncludeXmlComments(System.IO.Path.Combine(AppContext.BaseDirectory, xmlFilename));
+});
 
 var app = builder.Build();
 
@@ -234,6 +268,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<ConversationHub>("/hubs/conversation");
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();
 

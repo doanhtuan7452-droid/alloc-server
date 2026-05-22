@@ -102,7 +102,7 @@ namespace AllocServer.Services.Facade_Services
         // REGISTER — Strategy Pattern
         // =============================================
 
-        public async Task<RegisterResponse> RegisterLocalAsync(LocalRegister request, string? deviceInfo, string? ipAddress)
+        public async Task<RegisterResponse> RegisterLocalAsync(LocalRegisterRequest request, string? deviceInfo, string? ipAddress)
         {
             _strategyContext.SetStrategy(_localStrategy);
             var context = new RegisterContext
@@ -113,7 +113,7 @@ namespace AllocServer.Services.Facade_Services
             return await _strategyContext.ExecuteAsync(context);
         }
 
-        public async Task<RegisterResponse> RegisterGoogleAsync(GoogleRegister request, string? deviceInfo, string? ipAddress)
+        public async Task<RegisterResponse> RegisterGoogleAsync(GoogleRegisterRequest request, string? deviceInfo, string? ipAddress)
         {
             _strategyContext.SetStrategy(_googleStrategy);
             var context = new RegisterContext

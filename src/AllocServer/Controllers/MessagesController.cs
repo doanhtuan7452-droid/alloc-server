@@ -20,6 +20,7 @@ namespace AllocServer.Controllers
             _messageService = messageService;
         }
 
+        /// <summary>Chinh sua noi dung tin nhan.</summary>
         [HttpPut("{messageId}")]
         [Authorize]
         [RequireActiveAccount]
@@ -59,6 +60,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Xoa mem tin nhan.</summary>
         [HttpDelete("{messageId}")]
         [Authorize]
         [RequireActiveAccount]

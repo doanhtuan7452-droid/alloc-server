@@ -6,6 +6,7 @@ using System.Security.Claims;
 using AllocServer.DTOs.Common;
 using AllocServer.DTOs.Tasks;
 using AllocServer.Interfaces.Tasks;
+using AllocServer.Constants.Permissions;
 using AllocServer.Filters;
 using AllocServer.Models;
 
@@ -117,9 +118,14 @@ namespace AllocServer.Controllers
                 return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
             }
 
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
             try
             {
-                var response = await _taskService.AssignTaskAssigneeAsync(task, request);
+                var response = await _taskService.AssignTaskAssigneeAsync(accountId, task, request);
                 return StatusCode(201, response);
             }
             catch (ArgumentException ex)

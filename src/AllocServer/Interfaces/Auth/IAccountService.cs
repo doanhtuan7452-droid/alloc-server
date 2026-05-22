@@ -14,9 +14,9 @@ namespace AllocServer.Interfaces.Auth
         /// <summary>Tìm Account theo ID (dùng bởi AccountActiveHandler trong chain)</summary>
         Task<Account?> GetAccountByIdAsync(int accountId);
 
-        Task<AccountMeResponse?> GetCurrentAccountProfileAsync(int accountId);
+        Task<AccountProfileResponse?> GetCurrentAccountProfileAsync(int accountId);
 
-        Task<AccountMeResponse?> UpdateCurrentAccountProfileAsync(
+        Task<AccountProfileResponse?> UpdateCurrentAccountProfileAsync(
             int accountId,
             UpdateAccountProfileRequest request);
 

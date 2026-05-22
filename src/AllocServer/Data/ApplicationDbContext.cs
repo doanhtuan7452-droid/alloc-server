@@ -34,13 +34,15 @@ namespace AllocServer.Data
         public DbSet<ConversationMember> ConversationMembers { get; set; }
         public DbSet<Timesheet> Timesheets { get; set; }
         public DbSet<LeaveRequest> LeaveRequests { get; set; }
-        public DbSet<OTRequest> OTRequests { get; set; }
+        public DbSet<OvertimeRequest> OTRequests { get; set; }
         public DbSet<TaskComment> TaskComments { get; set; }
         public DbSet<TaskAsset> TaskAssets { get; set; }
         public DbSet<TaskAssignee> TaskAssignees { get; set; }
         public DbSet<TaskDependency> TaskDependencies { get; set; }
         public DbSet<Message> Messages { get; set; }
         public DbSet<MessageAsset> MessageAssets { get; set; }
+        public DbSet<Notification> Notifications { get; set; }
+        public DbSet<NotificationDeviceToken> NotificationDeviceTokens { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -90,7 +92,7 @@ namespace AllocServer.Data
             modelBuilder.Entity<LeaveRequest>()
                 .HasQueryFilter(r => !r.IsDeleted);
 
-            modelBuilder.Entity<OTRequest>()
+            modelBuilder.Entity<OvertimeRequest>()
                 .HasQueryFilter(r => !r.IsDeleted);
 
             modelBuilder.Entity<TaskComment>()
@@ -239,19 +241,19 @@ namespace AllocServer.Data
                 .HasForeignKey(request => request.ApproverID)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<OTRequest>()
+            modelBuilder.Entity<OvertimeRequest>()
                 .HasOne(request => request.WorkspaceMember)
                 .WithMany()
                 .HasForeignKey(request => request.WorkspaceMemberID)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<OTRequest>()
+            modelBuilder.Entity<OvertimeRequest>()
                 .HasOne(request => request.Approver)
                 .WithMany()
                 .HasForeignKey(request => request.ApproverID)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<OTRequest>()
+            modelBuilder.Entity<OvertimeRequest>()
                 .HasOne(request => request.Task)
                 .WithMany()
                 .HasForeignKey(request => request.TaskID)
@@ -455,7 +457,66 @@ namespace AllocServer.Data
                 .WithMany()
                 .HasForeignKey(ma => ma.AssetID)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // Notifications - Index and Defaults
+            modelBuilder.Entity<Notification>()
+                .HasIndex(n => new { n.RecipientID, n.CreatedAt })
+                .IsDescending(false, true)
+                .HasDatabaseName("IX_Notifications_RecipientID_CreatedAt");
+
+            modelBuilder.Entity<Notification>()
+                .HasIndex(n => new { n.RecipientID, n.IsRead, n.CreatedAt })
+                .IsDescending(false, false, true)
+                .HasDatabaseName("IX_Notifications_RecipientID_IsRead_CreatedAt");
+
+            modelBuilder.Entity<Notification>()
+                .Property(n => n.CreatedAt)
+                .HasDefaultValueSql("SYSUTCDATETIME()");
+
+            modelBuilder.Entity<Notification>()
+                .ToTable(t => t.HasCheckConstraint("CK_Notifications_ReferenceType", "ReferenceType IN ('Task', 'Comment', 'Conversation', 'Project', 'Risk')"));
+
+            modelBuilder.Entity<Notification>()
+                .HasOne(n => n.Recipient)
+                .WithMany()
+                .HasForeignKey(n => n.RecipientID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Notification>()
+                .HasOne(n => n.Actor)
+                .WithMany()
+                .HasForeignKey(n => n.ActorID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // NotificationDeviceTokens - Index and Defaults
+            modelBuilder.Entity<NotificationDeviceToken>()
+                .HasIndex(t => t.DeviceToken)
+                .IsUnique();
+
+            modelBuilder.Entity<NotificationDeviceToken>()
+                .Property(t => t.CreatedAt)
+                .HasDefaultValueSql("SYSUTCDATETIME()");
+
+            modelBuilder.Entity<NotificationDeviceToken>()
+                .Property(t => t.LastUsedAt)
+                .HasDefaultValueSql("SYSUTCDATETIME()");
+
+            modelBuilder.Entity<NotificationDeviceToken>()
+                .Property(t => t.IsActive)
+                .HasDefaultValue(true);
+
+            modelBuilder.Entity<NotificationDeviceToken>()
+                .Property(t => t.FailureCount)
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<NotificationDeviceToken>()
+                .ToTable(t => t.HasCheckConstraint("CK_NotificationDeviceTokens_DeviceType", "DeviceType IN ('iOS', 'Android', 'Web')"));
+
+            modelBuilder.Entity<NotificationDeviceToken>()
+                .HasOne(t => t.Account)
+                .WithMany()
+                .HasForeignKey(t => t.AccountID)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }
-

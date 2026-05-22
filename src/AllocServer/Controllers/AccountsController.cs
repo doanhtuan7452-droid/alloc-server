@@ -40,7 +40,7 @@ namespace AllocServer.Controllers
         [Authorize]
         [RequireActiveAccount]
         [HttpGet("me")]
-        [ProducesResponseType(typeof(AccountMeResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(AccountProfileResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetMe()
@@ -63,7 +63,7 @@ namespace AllocServer.Controllers
         [Authorize]
         [RequireActiveAccount]
         [HttpPut]
-        [ProducesResponseType(typeof(AccountMeResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(AccountProfileResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]

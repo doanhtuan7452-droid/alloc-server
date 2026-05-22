@@ -37,6 +37,7 @@ namespace AllocServer.Controllers
             return int.TryParse(accountIdClaim, out accountId);
         }
 
+        /// <summary>Tao cuoc hoi thoai moi.</summary>
         [HttpPost("workspaces/{workspaceId}/conversations")]
         [Authorize]
         [RequireActiveAccount]
@@ -77,6 +78,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay danh sach cuoc hoi thoai trong workspace.</summary>
         [HttpGet("workspaces/{workspaceId}/conversations")]
         [Authorize]
         [RequireActiveAccount]
@@ -102,6 +104,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay chi tiet cuoc hoi thoai.</summary>
         [HttpGet("conversations/{conversationId}")]
         [Authorize]
         [RequireActiveAccount]
@@ -126,6 +129,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay danh sach tin nhan cua cuoc hoi thoai.</summary>
         [HttpGet("conversations/{conversationId}/messages")]
         [Authorize]
         [RequireActiveAccount]
@@ -160,6 +164,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Gui tin nhan moi vao cuoc hoi thoai.</summary>
         [HttpPost("conversations/{conversationId}/messages")]
         [Authorize]
         [RequireActiveAccount]
@@ -198,6 +203,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Danh dau da doc cuoc hoi thoai.</summary>
         [HttpPut("conversations/{conversationId}/read")]
         [HttpPost("conversations/{conversationId}/read")]
         [Authorize]
@@ -222,6 +228,7 @@ namespace AllocServer.Controllers
                 return StatusCode(403, new ApiResponse { Message = ex.Message });
             }
         }
+        /// <summary>Doi ten cuoc hoi thoai.</summary>
         [HttpPut("conversations/{conversationId}")]
         [Authorize]
         [RequireActiveAccount]
@@ -257,6 +264,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Xoa mem cuoc hoi thoai.</summary>
         [HttpDelete("conversations/{conversationId}")]
         [Authorize]
         [RequireActiveAccount]
@@ -284,6 +292,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Them thanh vien vao cuoc hoi thoai.</summary>
         [HttpPost("conversations/{conversationId}/members")]
         [Authorize]
         [RequireActiveAccount]
@@ -324,6 +333,7 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Xoa thanh vien khoi cuoc hoi thoai.</summary>
         [HttpDelete("conversations/{conversationId}/members/{memberId}")]
         [Authorize]
         [RequireActiveAccount]

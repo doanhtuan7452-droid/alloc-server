@@ -23,7 +23,7 @@ namespace AllocServer.Controllers
         // LOGIN
         // =============================================
 
-        /// <summary>Đăng nhập bằng Email + Password (Local)</summary>
+        /// <summary>Dang nhap bang Email + Password (Local).</summary>
         [HttpPost("login")]
         [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
@@ -47,13 +47,13 @@ namespace AllocServer.Controllers
         // =============================================
 
         /// <summary>
-        /// Đăng ký tài khoản Local bằng Email + Password.
-        /// Sau khi thành công, tự động tạo profile (Resource) và trả về JWT token.
+        /// Dang ky tai khoan Local bang Email + Password.
+        /// Sau khi thanh cong, tu dong tao profile (Resource) va tra ve JWT token.
         /// </summary>
         [HttpPost("register/local")]
         [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> RegisterLocal([FromBody] LocalRegister request)
+        public async Task<IActionResult> RegisterLocal([FromBody] LocalRegisterRequest request)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -68,15 +68,15 @@ namespace AllocServer.Controllers
         }
 
         /// <summary>
-        /// Đăng ký / Đăng nhập bằng Google ID Token.
-        /// - Nếu email Google chưa có trong hệ thống → Tạo tài khoản mới + profile.
-        /// - Nếu email đã tồn tại (tài khoản Local) → Link tài khoản và trả về token (IsLinked = true).
+        /// Dang ky / Dang nhap bang Google ID Token.
+        /// - Neu email Google chua co trong he thong -> Tao tai khoan moi + profile.
+        /// - Neu email da ton tai (tai khoan Local) -> Link tai khoan va tra ve token (IsLinked = true).
         /// </summary>
         [HttpPost("register/google")]
         [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> RegisterGoogle([FromBody] GoogleRegister request)
+        public async Task<IActionResult> RegisterGoogle([FromBody] GoogleRegisterRequest request)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -98,9 +98,9 @@ namespace AllocServer.Controllers
         // =============================================
 
         /// <summary>
-        /// Làm mới Access Token bằng Refresh Token còn hợp lệ.
-        /// Áp dụng Refresh Token Rotation: token cũ bị thu hồi, trả về cặp token mới.
-        /// Chuỗi xác thực: Tồn tại → Chưa thu hồi → Chưa hết hạn → Account còn hoạt động.
+        /// Lam moi Access Token bang Refresh Token con hop le.
+        /// Ap dung Refresh Token Rotation: token cu bi thu hoi, tra ve cap token moi.
+        /// Chuoi xac thuc: Ton tai -> Chua thu hoi -> Chua het han -> Account con hoat dong.
         /// </summary>
         [HttpPost("refresh-token")]
         [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
@@ -127,9 +127,9 @@ namespace AllocServer.Controllers
         // =============================================
 
         /// <summary>
-        /// Local Logout — Đăng xuất khỏi thiết bị hiện tại.
-        /// Thu hồi RefreshToken chỉ định + denylist Access Token hiện tại.
-        /// Yêu cầu: Bearer Token hợp lệ trong header.
+        /// Local Logout - Dang xuat khoi thiet bi hien tai.
+        /// Thu hoi RefreshToken chi dinh + denylist Access Token hien tai.
+        /// Yeu cau: Bearer Token hop le trong header.
         /// </summary>
         [Authorize]
         [HttpPost("revoke/local")]
@@ -165,10 +165,10 @@ namespace AllocServer.Controllers
         }
 
         /// <summary>
-        /// Global Logout — Đăng xuất khỏi tất cả thiết bị.
-        /// Thu hồi TOÀN BỘ session của tài khoản + denylist Access Token hiện tại.
-        /// Không cần body — AccountID lấy từ Bearer Token (chống CSRF).
-        /// Lưu ý: Access Token từ thiết bị khác tự hết hiệu lực sau tối đa 20 phút.
+        /// Global Logout - Dang xuat khoi tat ca thiet bi.
+        /// Thu hoi TOAN BO session cua tai khoan + denylist Access Token hien tai.
+        /// Khong can body - AccountID lay tu Bearer Token (chong CSRF).
+        /// Luu y: Access Token tu thiet bi khac tu het hieu luc sau toi da 20 phut.
         /// </summary>
         [Authorize]
         [HttpPost("revoke/global")]

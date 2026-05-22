@@ -1,5 +1,6 @@
 using AllocServer.Data;
 using AllocServer.DTOs.Projects;
+using AllocServer.Constants.Permissions;
 using AllocServer.Filters;
 using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Storage;
