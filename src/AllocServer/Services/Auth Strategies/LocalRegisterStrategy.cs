@@ -1,23 +1,22 @@
-using AllocServer.Contexts;
-using AllocServer.DTOs.Auth;
 using AllocServer.Interfaces.Auth;
-using AllocServer.Interfaces.Register;
 using AllocServer.Models;
+using AllocServer.Models.Auth;
 
-namespace AllocServer.Services.Register_Strategies
+namespace AllocServer.Services.Auth_Strategies
 {
     /// <summary>
     /// Strategy Pattern — Chiến lược đăng ký bằng Email + Password (Local).
-    /// Luồng: Kiểm tra email → Hash password → Tạo Account → Tạo Resource → Tạo Session → Trả token
+    /// Logic giữ nguyên 100% từ LocalRegistrationStrategy.RegisterAsync() gốc:
+    ///   Kiểm tra email trùng → Hash password → Tạo Account → Tạo Resource → Sinh token → Tạo Session
     /// </summary>
-    public class LocalRegistrationStrategy : IRegistrationStrategy
+    public class LocalRegisterStrategy : IAuthenticationStrategy
     {
         private readonly IAccountService _accountService;
         private readonly ITokenService _tokenService;
         private readonly ISessionService _sessionService;
         private readonly IConfiguration _configuration;
 
-        public LocalRegistrationStrategy(
+        public LocalRegisterStrategy(
             IAccountService accountService,
             ITokenService tokenService,
             ISessionService sessionService,
@@ -29,13 +28,13 @@ namespace AllocServer.Services.Register_Strategies
             _configuration = configuration;
         }
 
-        public async Task<RegisterResponse> RegisterAsync(RegisterContext context)
+        public async Task<AuthStrategyResult> ExecuteAsync(AuthStrategyContext context)
         {
             // 1. Kiểm tra email đã tồn tại chưa
             var emailExists = await _accountService.IsEmailExistsAsync(context.Email!);
             if (emailExists)
             {
-                return new RegisterResponse
+                return new AuthStrategyResult
                 {
                     Success = false,
                     ErrorMessage = "Email này đã được sử dụng. Vui lòng chọn email khác."
@@ -82,7 +81,7 @@ namespace AllocServer.Services.Register_Strategies
                 context.DeviceInfo, context.IpAddress,
                 (int)refreshTokenDays);
 
-            return new RegisterResponse
+            return new AuthStrategyResult
             {
                 Success = true,
                 AccountID = createdAccount.AccountID,

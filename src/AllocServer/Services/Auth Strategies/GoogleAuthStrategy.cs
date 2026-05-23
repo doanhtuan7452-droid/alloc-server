@@ -1,19 +1,19 @@
-using AllocServer.Contexts;
-using AllocServer.DTOs.Auth;
 using AllocServer.Interfaces.Auth;
-using AllocServer.Interfaces.Register;
 using AllocServer.Models;
+using AllocServer.Models.Auth;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace AllocServer.Services.Register_Strategies
+namespace AllocServer.Services.Auth_Strategies
 {
     /// <summary>
     /// Strategy Pattern — Chiến lược đăng ký / đăng nhập bằng Google ID Token.
-    /// Luồng: Xác thực token với Google API → Lấy thông tin user → 
-    ///        Nếu email đã có (Local) → Link tài khoản | Nếu chưa có → Tạo mới Account + Resource → Trả token
+    /// Logic giữ nguyên 100% từ GoogleRegistrationStrategy.RegisterAsync() gốc:
+    ///   Xác thực token với Google API → Kiểm tra Audience → Kiểm tra EmailVerified →
+    ///   Nếu email đã có → Link tài khoản (IsLinked = true, KHÔNG đổi AuthType) →
+    ///   Nếu chưa có → Tạo Account mới (AuthType = "Google", placeholder PasswordHash) + Resource → Trả token
     /// </summary>
-    public class GoogleRegistrationStrategy : IRegistrationStrategy
+    public class GoogleAuthStrategy : IAuthenticationStrategy
     {
         private readonly IAccountService _accountService;
         private readonly ITokenService _tokenService;
@@ -21,7 +21,7 @@ namespace AllocServer.Services.Register_Strategies
         private readonly IConfiguration _configuration;
         private readonly HttpClient _httpClient;
 
-        public GoogleRegistrationStrategy(
+        public GoogleAuthStrategy(
             IAccountService accountService,
             ITokenService tokenService,
             ISessionService sessionService,
@@ -35,14 +35,14 @@ namespace AllocServer.Services.Register_Strategies
             _httpClient = httpClientFactory.CreateClient("Google");
         }
 
-        public async Task<RegisterResponse> RegisterAsync(RegisterContext context)
+        public async Task<AuthStrategyResult> ExecuteAsync(AuthStrategyContext context)
         {
             // 1. Xác thực Google ID Token với Google API thật
             var googlePayload = await VerifyGoogleTokenAsync(context.IdToken!);
 
             if (googlePayload == null)
             {
-                return new RegisterResponse
+                return new AuthStrategyResult
                 {
                     Success = false,
                     ErrorMessage = "Google ID Token không hợp lệ hoặc đã hết hạn."
@@ -53,7 +53,7 @@ namespace AllocServer.Services.Register_Strategies
             var expectedClientId = _configuration["GoogleSettings:ClientId"];
             if (!string.IsNullOrEmpty(expectedClientId) && googlePayload.Audience != expectedClientId)
             {
-                return new RegisterResponse
+                return new AuthStrategyResult
                 {
                     Success = false,
                     ErrorMessage = "Google ID Token không thuộc ứng dụng này."
@@ -63,7 +63,7 @@ namespace AllocServer.Services.Register_Strategies
             // 3. Kiểm tra email đã được xác thực từ Google
             if (!googlePayload.EmailVerified)
             {
-                return new RegisterResponse
+                return new AuthStrategyResult
                 {
                     Success = false,
                     ErrorMessage = "Email Google chưa được xác thực. Vui lòng xác thực email Google trước."
@@ -83,6 +83,7 @@ namespace AllocServer.Services.Register_Strategies
                 // ============================================================
                 // ACCOUNT LINKING: Email trùng với tài khoản Local/khác
                 // → Xác thực thành công → Cấp token cho tài khoản hiện có
+                // → KHÔNG đổi AuthType của account hiện tại
                 // ============================================================
                 await _accountService.UpdateLastLoginAsync(existingAccount.AccountID);
 
@@ -96,7 +97,7 @@ namespace AllocServer.Services.Register_Strategies
                     context.DeviceInfo, context.IpAddress,
                     (int)refreshTokenDays);
 
-                return new RegisterResponse
+                return new AuthStrategyResult
                 {
                     Success = true,
                     AccountID = existingAccount.AccountID,
@@ -113,6 +114,7 @@ namespace AllocServer.Services.Register_Strategies
             {
                 Email = googleEmail,
                 // PasswordHash lưu Google Sub (User ID) — không phải password thật
+                // Giữ placeholder vì DB constraint PasswordHash NOT NULL
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(googleSub),
                 AuthType = "Google",
                 IsEmailVerified = true,     // Google đã xác thực email rồi
@@ -144,7 +146,7 @@ namespace AllocServer.Services.Register_Strategies
                 context.DeviceInfo, context.IpAddress,
                 (int)refreshDays);
 
-            return new RegisterResponse
+            return new AuthStrategyResult
             {
                 Success = true,
                 AccountID = createdAccount.AccountID,

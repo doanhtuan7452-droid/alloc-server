@@ -1,11 +1,11 @@
+using AllocServer.Constants;
+using AllocServer.Contexts;
 using AllocServer.DTOs.Auth;
 using AllocServer.Interfaces.Auth;
 using AllocServer.Interfaces.Commands;
 using AllocServer.Interfaces.Facade;
-using AllocServer.Interfaces.Register;
 using AllocServer.Commands;
-using AllocServer.Contexts;
-using AllocServer.Services.Register_Strategies;
+using AllocServer.Models.Auth;
 using AllocServer.Services.Token_Validation_Handlers;
 
 namespace AllocServer.Services.Facade_Services
@@ -13,21 +13,18 @@ namespace AllocServer.Services.Facade_Services
     /// <summary>
     /// Facade Pattern — Che giấu toàn bộ sự phức tạp của Authentication.
     /// Tích hợp với:
-    ///   - Strategy Pattern        (Register)      : LocalRegistrationStrategy, GoogleRegistrationStrategy
-    ///   - Chain of Responsibility (Refresh Token) : TokenExistsHandler → ... → AccountActiveHandler
-    ///   - Command Pattern         (Logout/Revoke) : LocalLogoutCommand, GlobalLogoutCommand → RevokeSessionCommandHandler
+    ///   - Simple Factory + Strategy   (Login/Register) : IAuthStrategyFactory → LocalLogin / LocalRegister / GoogleAuth
+    ///   - Chain of Responsibility     (Refresh Token)  : TokenExistsHandler → ... → AccountActiveHandler
+    ///   - Command Pattern             (Logout/Revoke)  : LocalLogoutCommand, GlobalLogoutCommand → RevokeSessionCommandHandler
     /// </summary>
     public class AuthFacade : IAuthFacade
     {
-        private readonly IAccountService _accountService;
         private readonly ITokenService _tokenService;
         private readonly ISessionService _sessionService;
         private readonly IConfiguration _configuration;
 
-        // Strategy Pattern
-        private readonly LocalRegistrationStrategy _localStrategy;
-        private readonly GoogleRegistrationStrategy _googleStrategy;
-        private readonly IRegisterStrategyContext _strategyContext;
+        // Simple Factory + Strategy Pattern
+        private readonly IAuthStrategyFactory _authStrategyFactory;
 
         // Chain of Responsibility
         private readonly TokenExistsHandler _tokenExistsHandler;
@@ -39,14 +36,11 @@ namespace AllocServer.Services.Facade_Services
         private readonly ILogoutCommandHandler _logoutCommandHandler;
 
         public AuthFacade(
-            IAccountService accountService,
             ITokenService tokenService,
             ISessionService sessionService,
             IConfiguration configuration,
-            // Strategy Pattern
-            LocalRegistrationStrategy localStrategy,
-            GoogleRegistrationStrategy googleStrategy,
-            IRegisterStrategyContext strategyContext,
+            // Simple Factory + Strategy Pattern
+            IAuthStrategyFactory authStrategyFactory,
             // Chain of Responsibility
             TokenExistsHandler tokenExistsHandler,
             TokenNotRevokedHandler tokenNotRevokedHandler,
@@ -55,13 +49,10 @@ namespace AllocServer.Services.Facade_Services
             // Command Pattern
             ILogoutCommandHandler logoutCommandHandler)
         {
-            _accountService = accountService;
             _tokenService = tokenService;
             _sessionService = sessionService;
             _configuration = configuration;
-            _localStrategy = localStrategy;
-            _googleStrategy = googleStrategy;
-            _strategyContext = strategyContext;
+            _authStrategyFactory = authStrategyFactory;
             _tokenExistsHandler = tokenExistsHandler;
             _tokenNotRevokedHandler = tokenNotRevokedHandler;
             _tokenNotExpiredHandler = tokenNotExpiredHandler;
@@ -70,62 +61,93 @@ namespace AllocServer.Services.Facade_Services
         }
 
         // =============================================
-        // LOGIN
+        // LOGIN — Simple Factory + Strategy Pattern
         // =============================================
 
         public async Task<AuthResponse> LoginAsync(string email, string password, string? deviceInfo, string? ipAddress)
         {
-            var account = await _accountService.GetAccountByEmailAsync(email);
-            if (account == null)
-                return new AuthResponse { Success = false, ErrorMessage = "Tài khoản không tồn tại hoặc đã bị khóa." };
+            var strategy = _authStrategyFactory.GetStrategy(AuthStrategyTypes.LocalLogin);
+            var context = new AuthStrategyContext
+            {
+                Email = email,
+                Password = password,
+                DeviceInfo = deviceInfo,
+                IpAddress = ipAddress
+            };
 
-            if (account.AuthType != "Local")
-                return new AuthResponse { Success = false, ErrorMessage = $"Tài khoản này đăng ký bằng {account.AuthType}. Vui lòng dùng phương thức đăng nhập tương ứng." };
+            var result = await strategy.ExecuteAsync(context);
 
-            if (!_accountService.VerifyPassword(password, account.PasswordHash))
-                return new AuthResponse { Success = false, ErrorMessage = "Mật khẩu không chính xác." };
-
-            await _accountService.UpdateLastLoginAsync(account.AccountID);
-
-            var accessToken = _tokenService.GenerateJwtToken(account);
-            var refreshToken = _tokenService.GenerateRefreshToken();
-            var refreshTokenDays = double.Parse(
-                _configuration.GetSection("JwtSettings")["RefreshTokenExpirationDays"] ?? "7");
-
-            await _sessionService.CreateSessionAsync(
-                account.AccountID, refreshToken, deviceInfo, ipAddress, (int)refreshTokenDays);
-
-            return new AuthResponse { Success = true, AccessToken = accessToken, RefreshToken = refreshToken };
+            // Map AuthStrategyResult → AuthResponse (public DTO)
+            return new AuthResponse
+            {
+                Success = result.Success,
+                AccessToken = result.AccessToken,
+                RefreshToken = result.RefreshToken,
+                ErrorMessage = result.ErrorMessage
+            };
         }
 
         // =============================================
-        // REGISTER — Strategy Pattern
+        // REGISTER — Simple Factory + Strategy Pattern
         // =============================================
 
         public async Task<RegisterResponse> RegisterLocalAsync(LocalRegisterRequest request, string? deviceInfo, string? ipAddress)
         {
-            _strategyContext.SetStrategy(_localStrategy);
-            var context = new RegisterContext
+            var strategy = _authStrategyFactory.GetStrategy(AuthStrategyTypes.LocalRegister);
+            var context = new AuthStrategyContext
             {
-                Email = request.Email, Password = request.Password, FullName = request.FullName,
-                DeviceInfo = deviceInfo, IpAddress = ipAddress, AuthType = "Local"
+                Email = request.Email,
+                Password = request.Password,
+                FullName = request.FullName,
+                DeviceInfo = deviceInfo,
+                IpAddress = ipAddress
             };
-            return await _strategyContext.ExecuteAsync(context);
+
+            var result = await strategy.ExecuteAsync(context);
+
+            // Map AuthStrategyResult → RegisterResponse (public DTO)
+            return new RegisterResponse
+            {
+                Success = result.Success,
+                ErrorMessage = result.ErrorMessage,
+                AccountID = result.AccountID,
+                Email = result.Email,
+                AuthType = result.AuthType,
+                AccessToken = result.AccessToken,
+                RefreshToken = result.RefreshToken,
+                IsLinked = result.IsLinked
+            };
         }
 
         public async Task<RegisterResponse> RegisterGoogleAsync(GoogleRegisterRequest request, string? deviceInfo, string? ipAddress)
         {
-            _strategyContext.SetStrategy(_googleStrategy);
-            var context = new RegisterContext
+            var strategy = _authStrategyFactory.GetStrategy(AuthStrategyTypes.GoogleAuth);
+            var context = new AuthStrategyContext
             {
-                IdToken = request.IdToken, DeviceInfo = deviceInfo,
-                IpAddress = ipAddress, AuthType = "Google"
+                IdToken = request.IdToken,
+                DeviceInfo = deviceInfo,
+                IpAddress = ipAddress
             };
-            return await _strategyContext.ExecuteAsync(context);
+
+            var result = await strategy.ExecuteAsync(context);
+
+            // Map AuthStrategyResult → RegisterResponse (public DTO)
+            return new RegisterResponse
+            {
+                Success = result.Success,
+                ErrorMessage = result.ErrorMessage,
+                AccountID = result.AccountID,
+                Email = result.Email,
+                AuthType = result.AuthType,
+                AccessToken = result.AccessToken,
+                RefreshToken = result.RefreshToken,
+                IsLinked = result.IsLinked
+            };
         }
 
         // =============================================
         // REFRESH TOKEN — Chain of Responsibility
+        // (Giữ nguyên 100% logic gốc — không thuộc phạm vi refactor này)
         // =============================================
 
         public async Task<AuthResponse> RefreshTokenAsync(string refreshToken, string? deviceInfo, string? ipAddress)
@@ -159,6 +181,7 @@ namespace AllocServer.Services.Facade_Services
 
         // =============================================
         // LOGOUT / REVOKE — Command Pattern
+        // (Giữ nguyên 100% logic gốc — không thuộc phạm vi refactor này)
         // =============================================
 
         public async Task<LogoutResult> LocalLogoutAsync(

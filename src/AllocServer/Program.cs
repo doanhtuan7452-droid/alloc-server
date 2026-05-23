@@ -14,7 +14,7 @@ using AllocServer.Interfaces.Messages;
 using AllocServer.Interfaces.Notifications;
 using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Projects;
-using AllocServer.Interfaces.Register;
+using AllocServer.Services.Auth_Strategies;
 using AllocServer.Interfaces.Revenues;
 using AllocServer.Interfaces.Requests;
 using AllocServer.Interfaces.Risks;
@@ -38,7 +38,7 @@ using AllocServer.Services.ProjectAsset_Services;
 using AllocServer.Services.Project_Services;
 using AllocServer.Services.Revenue_Services;
 using AllocServer.Services.Request_Services;
-using AllocServer.Services.Register_Strategies;
+
 using AllocServer.Services.Risk_Services;
 using AllocServer.Services.Storage;
 using AllocServer.Services.Task_Services;
@@ -114,11 +114,12 @@ builder.Services.AddScoped<IStorageStrategy, AzureBlobStorageStrategy>();
 builder.Services.AddScoped<StorageFactory>();
 
 // ============================================================
-// Dependency Injection — Strategy Pattern (Register)
+// Dependency Injection — Simple Factory + Strategy Pattern (Auth)
 // ============================================================
-builder.Services.AddScoped<LocalRegistrationStrategy>();
-builder.Services.AddScoped<GoogleRegistrationStrategy>();
-builder.Services.AddScoped<IRegisterStrategyContext, RegisterStrategyContext>();
+builder.Services.AddScoped<LocalLoginStrategy>();
+builder.Services.AddScoped<LocalRegisterStrategy>();
+builder.Services.AddScoped<GoogleAuthStrategy>();
+builder.Services.AddScoped<IAuthStrategyFactory, AuthStrategyFactory>();
 
 // ============================================================
 // Dependency Injection — Chain of Responsibility (Refresh Token Validation)
