@@ -66,6 +66,38 @@ namespace AllocServer.Services.Project_Services
                 throw new ArgumentException("Status chi nhan Planning, In Progress, Completed, On Hold hoac Cancelled.");
             }
 
+            var methodology = project.Methodology;
+            if (request.Methodology != null)
+            {
+                var reqMethodology = NormalizeOptionalString(request.Methodology);
+                if (reqMethodology == null || !IsAllowedMethodology(reqMethodology))
+                {
+                    throw new ArgumentException("Methodology chi nhan Agile, Waterfall, Scrum, Kanban hoac Hybrid.");
+                }
+                methodology = reqMethodology;
+            }
+
+            var currencyCode = project.OriginalCurrencyCode;
+            if (request.OriginalCurrencyCode != null)
+            {
+                var reqCurrencyCode = NormalizeOptionalString(request.OriginalCurrencyCode)?.ToUpperInvariant();
+                if (string.IsNullOrEmpty(reqCurrencyCode) || reqCurrencyCode.Length > 5)
+                {
+                    throw new ArgumentException("OriginalCurrencyCode khong duoc de trong va khong duoc vuot qua 5 ky tu.");
+                }
+                currencyCode = reqCurrencyCode;
+            }
+
+            var exchangeRate = project.ExchangeRateToUSD;
+            if (request.ExchangeRateToUSD.HasValue)
+            {
+                if (request.ExchangeRateToUSD.Value <= 0 || request.ExchangeRateToUSD.Value > 999999.9999m)
+                {
+                    throw new ArgumentException("ExchangeRateToUSD phai lon hon 0 va nho hon hoac bang 999999.9999.");
+                }
+                exchangeRate = request.ExchangeRateToUSD.Value;
+            }
+
             var isDuplicateName = await _context.Projects
                 .AsNoTracking()
                 .AnyAsync(item =>
@@ -84,6 +116,9 @@ namespace AllocServer.Services.Project_Services
             project.StartDate = request.StartDate.Value;
             project.EndDate = request.EndDate.Value;
             project.Status = status;
+            project.OriginalCurrencyCode = currencyCode;
+            project.ExchangeRateToUSD = exchangeRate;
+            project.Methodology = methodology;
             project.BaselineData = request.BaselineData;
 
             try
@@ -215,6 +250,9 @@ namespace AllocServer.Services.Project_Services
                 StartDate = project.StartDate,
                 EndDate = project.EndDate,
                 Status = project.Status,
+                OriginalCurrencyCode = project.OriginalCurrencyCode,
+                ExchangeRateToUSD = project.ExchangeRateToUSD,
+                Methodology = project.Methodology,
                 BaselineData = project.BaselineData,
                 CreatedAt = project.CreatedAt
             };
@@ -237,6 +275,11 @@ namespace AllocServer.Services.Project_Services
             };
 
             return AllowedStatuses.Contains(candidate) ? candidate : null;
+        }
+
+        private static bool IsAllowedMethodology(string methodology)
+        {
+            return methodology is "Agile" or "Waterfall" or "Scrum" or "Kanban" or "Hybrid";
         }
 
         private static string? NormalizeOptionalString(string? value)

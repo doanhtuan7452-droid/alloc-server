@@ -16,5 +16,11 @@ namespace AllocServer.DTOs.Workspaces
 
         [Required]
         public DateOnly? EndDate { get; set; }
+
+        public string OriginalCurrencyCode { get; set; } = "USD";
+
+        public decimal ExchangeRateToUSD { get; set; } = 1.0m;
+
+        public string Methodology { get; set; } = "Agile";
     }
 }

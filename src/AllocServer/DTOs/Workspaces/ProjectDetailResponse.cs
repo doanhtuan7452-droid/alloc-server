@@ -31,6 +31,15 @@ namespace AllocServer.DTOs.Workspaces
         [JsonPropertyName("baselineData")]
         public string? BaselineData { get; set; }
 
+        [JsonPropertyName("originalCurrencyCode")]
+        public string OriginalCurrencyCode { get; set; } = null!;
+
+        [JsonPropertyName("exchangeRateToUSD")]
+        public decimal ExchangeRateToUSD { get; set; }
+
+        [JsonPropertyName("methodology")]
+        public string Methodology { get; set; } = null!;
+
         [JsonPropertyName("createdAt")]
         public DateTime CreatedAt { get; set; }
     }

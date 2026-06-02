@@ -222,6 +222,9 @@ namespace AllocServer.Services.Workspace_Services
                     StartDate = project.StartDate,
                     EndDate = project.EndDate,
                     Status = project.Status,
+                    OriginalCurrencyCode = project.OriginalCurrencyCode,
+                    ExchangeRateToUSD = project.ExchangeRateToUSD,
+                    Methodology = project.Methodology,
                     CreatedAt = project.CreatedAt
                 })
                 .ToListAsync();
@@ -250,6 +253,23 @@ namespace AllocServer.Services.Workspace_Services
 
             var projectName = request.ProjectName.Trim();
 
+            var methodology = NormalizeOptionalString(request.Methodology) ?? "Agile";
+            if (!IsAllowedMethodology(methodology))
+            {
+                throw new ArgumentException("Methodology chi nhan Agile, Waterfall, Scrum, Kanban hoac Hybrid.");
+            }
+
+            var currencyCode = NormalizeOptionalString(request.OriginalCurrencyCode)?.ToUpperInvariant() ?? "USD";
+            if (currencyCode.Length > 5)
+            {
+                throw new ArgumentException("OriginalCurrencyCode khong duoc vuot qua 5 ky tu.");
+            }
+
+            if (request.ExchangeRateToUSD <= 0 || request.ExchangeRateToUSD > 999999.9999m)
+            {
+                throw new ArgumentException("ExchangeRateToUSD phai lon hon 0 va nho hon hoac bang 999999.9999.");
+            }
+
             var project = new Project
             {
                 WorkspaceID = workspaceId,
@@ -258,7 +278,10 @@ namespace AllocServer.Services.Workspace_Services
                 TotalRevenue = 0,
                 StartDate = request.StartDate.Value,
                 EndDate = request.EndDate.Value,
-                Status = "Planning"
+                Status = "Planning",
+                OriginalCurrencyCode = currencyCode,
+                ExchangeRateToUSD = request.ExchangeRateToUSD,
+                Methodology = methodology
             };
 
             _context.Projects.Add(project);
@@ -288,6 +311,9 @@ namespace AllocServer.Services.Workspace_Services
                 StartDate = project.StartDate,
                 EndDate = project.EndDate,
                 Status = project.Status,
+                OriginalCurrencyCode = project.OriginalCurrencyCode,
+                ExchangeRateToUSD = project.ExchangeRateToUSD,
+                Methodology = project.Methodology,
                 BaselineData = project.BaselineData,
                 CreatedAt = project.CreatedAt
             };
@@ -644,6 +670,11 @@ namespace AllocServer.Services.Workspace_Services
                 "DEACTIVATED" => "Deactivated",
                 _ => null
             };
+        }
+
+        private static bool IsAllowedMethodology(string methodology)
+        {
+            return methodology is "Agile" or "Waterfall" or "Scrum" or "Kanban" or "Hybrid";
         }
 
         private static string? NormalizeOptionalString(string? value)

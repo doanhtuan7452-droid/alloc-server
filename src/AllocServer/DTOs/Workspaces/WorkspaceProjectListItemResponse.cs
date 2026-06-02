@@ -25,6 +25,15 @@ namespace AllocServer.DTOs.Workspaces
         [JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
 
+        [JsonPropertyName("originalCurrencyCode")]
+        public string OriginalCurrencyCode { get; set; } = string.Empty;
+
+        [JsonPropertyName("exchangeRateToUSD")]
+        public decimal ExchangeRateToUSD { get; set; }
+
+        [JsonPropertyName("methodology")]
+        public string Methodology { get; set; } = string.Empty;
+
         [JsonPropertyName("createdAt")]
         public DateTime CreatedAt { get; set; }
     }

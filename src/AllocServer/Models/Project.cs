@@ -30,6 +30,14 @@ namespace AllocServer.Models
         [StringLength(50)]
         public string Status { get; set; } = "Planning";
 
+        [StringLength(5)]
+        public string OriginalCurrencyCode { get; set; } = "USD";
+
+        public decimal ExchangeRateToUSD { get; set; } = 1.0m;
+
+        [StringLength(50)]
+        public string Methodology { get; set; } = "Agile";
+
         public string? BaselineData { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

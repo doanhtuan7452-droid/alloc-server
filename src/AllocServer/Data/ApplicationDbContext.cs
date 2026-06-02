@@ -63,6 +63,28 @@ namespace AllocServer.Data
             modelBuilder.Entity<Project>()
                 .HasQueryFilter(p => !p.IsDeleted);
 
+            modelBuilder.Entity<Project>()
+                .Property(p => p.OriginalCurrencyCode)
+                .HasColumnType("VARCHAR(5)")
+                .HasMaxLength(5)
+                .IsUnicode(false)
+                .HasDefaultValue("USD");
+
+            modelBuilder.Entity<Project>()
+                .Property(p => p.ExchangeRateToUSD)
+                .HasColumnType("DECIMAL(10,4)")
+                .HasDefaultValue(1.0m);
+
+            modelBuilder.Entity<Project>()
+                .Property(p => p.Methodology)
+                .HasColumnType("VARCHAR(50)")
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasDefaultValue("Agile");
+
+            modelBuilder.Entity<Project>()
+                .ToTable(t => t.HasCheckConstraint("CHK_Projects_Methodology", "Methodology IN ('Agile', 'Waterfall', 'Scrum', 'Kanban', 'Hybrid')"));
+
             modelBuilder.Entity<ProjectTask>()
                 .HasQueryFilter(t => !t.IsDeleted);
 
