@@ -30,5 +30,21 @@ namespace AllocServer.DTOs.Tasks
 
         [JsonPropertyName("createdAt")]
         public DateTime CreatedAt { get; set; }
+
+        /// <summary>Độ phức tạp của task: 'Low', 'Medium', 'High', 'Critical'.</summary>
+        [JsonPropertyName("complexity")]
+        public string Complexity { get; set; } = "Medium";
+
+        /// <summary>Yêu cầu trình độ kỹ năng: 'Low', 'Medium', 'High', 'Expert'.</summary>
+        [JsonPropertyName("requiredSkillLevel")]
+        public string RequiredSkillLevel { get; set; } = "Medium";
+
+        /// <summary>Mức độ ưu tiên của task: 'Low', 'Medium', 'High', 'Critical'.</summary>
+        [JsonPropertyName("priority")]
+        public string Priority { get; set; } = "Medium";
+
+        /// <summary>Số lượng nhân sự dự kiến.</summary>
+        [JsonPropertyName("expectedTeamSize")]
+        public int ExpectedTeamSize { get; set; } = 1;
     }
 }

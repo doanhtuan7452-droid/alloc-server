@@ -88,6 +88,40 @@ namespace AllocServer.Data
             modelBuilder.Entity<ProjectTask>()
                 .HasQueryFilter(t => !t.IsDeleted);
 
+            modelBuilder.Entity<ProjectTask>()
+                .Property(t => t.Complexity)
+                .HasColumnType("VARCHAR(20)")
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("Medium");
+
+            modelBuilder.Entity<ProjectTask>()
+                .Property(t => t.RequiredSkillLevel)
+                .HasColumnType("VARCHAR(20)")
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("Medium");
+
+            modelBuilder.Entity<ProjectTask>()
+                .Property(t => t.Priority)
+                .HasColumnType("VARCHAR(20)")
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("Medium");
+
+            modelBuilder.Entity<ProjectTask>()
+                .Property(t => t.ExpectedTeamSize)
+                .HasDefaultValue(1);
+
+            modelBuilder.Entity<ProjectTask>()
+                .ToTable(t =>
+                {
+                    t.HasCheckConstraint("CHK_Tasks_Complexity", "Complexity IN ('Low', 'Medium', 'High', 'Critical')");
+                    t.HasCheckConstraint("CHK_Tasks_RequiredSkillLevel", "RequiredSkillLevel IN ('Low', 'Medium', 'High', 'Expert')");
+                    t.HasCheckConstraint("CHK_Tasks_Priority", "Priority IN ('Low', 'Medium', 'High', 'Critical')");
+                    t.HasCheckConstraint("CHK_Tasks_ExpectedTeamSize", "ExpectedTeamSize >= 1");
+                });
+
             modelBuilder.Entity<Expense>()
                 .HasQueryFilter(e => !e.IsDeleted);
 

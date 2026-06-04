@@ -29,5 +29,29 @@ namespace AllocServer.DTOs.Tasks
         [StringLength(50, ErrorMessage = "Trang thai task khong duoc vuot qua 50 ky tu.")]
         [JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
+
+        /// <summary>Độ phức tạp của task. Giá trị hợp lệ: 'Low', 'Medium', 'High', 'Critical'.</summary>
+        [Required(ErrorMessage = "Do phuc tap la bat buoc.")]
+        [StringLength(20, ErrorMessage = "Do phuc tap khong duoc vuot qua 20 ky tu.")]
+        [JsonPropertyName("complexity")]
+        public string? Complexity { get; set; }
+
+        /// <summary>Yêu cầu trình độ kỹ năng tối thiểu. Giá trị hợp lệ: 'Low', 'Medium', 'High', 'Expert'.</summary>
+        [Required(ErrorMessage = "Yeu cau trinh do ky nang la bat buoc.")]
+        [StringLength(20, ErrorMessage = "Yeu cau trinh do ky nang khong duoc vuot qua 20 ky tu.")]
+        [JsonPropertyName("requiredSkillLevel")]
+        public string? RequiredSkillLevel { get; set; }
+
+        /// <summary>Mức độ ưu tiên của task. Giá trị hợp lệ: 'Low', 'Medium', 'High', 'Critical'.</summary>
+        [Required(ErrorMessage = "Muc do uu tien la bat buoc.")]
+        [StringLength(20, ErrorMessage = "Muc do uu tien khong duoc vuot qua 20 ky tu.")]
+        [JsonPropertyName("priority")]
+        public string? Priority { get; set; }
+
+        /// <summary>Số lượng nhân sự dự kiến cho task. Giá trị phải lớn hơn hoặc bằng 1.</summary>
+        [Required(ErrorMessage = "So luong thanh vien du kien la bat buoc.")]
+        [Range(1, int.MaxValue, ErrorMessage = "So luong thanh vien du kien phai lon hon hoac bang 1.")]
+        [JsonPropertyName("expectedTeamSize")]
+        public int? ExpectedTeamSize { get; set; }
     }
 }

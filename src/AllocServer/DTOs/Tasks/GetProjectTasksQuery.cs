@@ -33,5 +33,17 @@ namespace AllocServer.DTOs.Tasks
 
         [JsonPropertyName("endDateTo")]
         public DateOnly? EndDateTo { get; set; }
+
+        /// <summary>Bộ lọc theo độ phức tạp: 'Low', 'Medium', 'High', 'Critical'.</summary>
+        [JsonPropertyName("complexity")]
+        public string? Complexity { get; set; }
+
+        /// <summary>Bộ lọc theo trình độ tối thiểu: 'Low', 'Medium', 'High', 'Expert'.</summary>
+        [JsonPropertyName("requiredSkillLevel")]
+        public string? RequiredSkillLevel { get; set; }
+
+        /// <summary>Bộ lọc theo độ ưu tiên: 'Low', 'Medium', 'High', 'Critical'.</summary>
+        [JsonPropertyName("priority")]
+        public string? Priority { get; set; }
     }
 }

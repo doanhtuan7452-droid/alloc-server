@@ -45,6 +45,30 @@ namespace AllocServer.Services.Task_Services
             "SF"
         };
 
+        private static readonly HashSet<string> AllowedComplexities = new(StringComparer.Ordinal)
+        {
+            "Low",
+            "Medium",
+            "High",
+            "Critical"
+        };
+
+        private static readonly HashSet<string> AllowedSkillLevels = new(StringComparer.Ordinal)
+        {
+            "Low",
+            "Medium",
+            "High",
+            "Expert"
+        };
+
+        private static readonly HashSet<string> AllowedPriorities = new(StringComparer.Ordinal)
+        {
+            "Low",
+            "Medium",
+            "High",
+            "Critical"
+        };
+
         private readonly ApplicationDbContext _context;
         private readonly IEventPublisher _eventPublisher;
 
@@ -73,6 +97,10 @@ namespace AllocServer.Services.Task_Services
             {
                 throw new ArgumentException("DurationType chi nhan Hour, Day hoac StoryPoint.");
             }
+
+            var complexity = NormalizeOptionalComplexity(query.Complexity);
+            var skillLevel = NormalizeOptionalRequiredSkillLevel(query.RequiredSkillLevel);
+            var priority = NormalizeOptionalPriority(query.Priority);
 
             if (query.StartDateFrom != null
                 && query.StartDateTo != null
@@ -105,6 +133,21 @@ namespace AllocServer.Services.Task_Services
             if (durationType != null)
             {
                 tasksQuery = tasksQuery.Where(item => item.DurationType == durationType);
+            }
+
+            if (complexity != null)
+            {
+                tasksQuery = tasksQuery.Where(item => item.Complexity == complexity);
+            }
+
+            if (skillLevel != null)
+            {
+                tasksQuery = tasksQuery.Where(item => item.RequiredSkillLevel == skillLevel);
+            }
+
+            if (priority != null)
+            {
+                tasksQuery = tasksQuery.Where(item => item.Priority == priority);
             }
 
             if (query.StartDateFrom != null)
@@ -151,7 +194,11 @@ namespace AllocServer.Services.Task_Services
                     EstimatedValue = item.EstimatedValue,
                     StartDate = item.StartDate,
                     EndDate = item.EndDate,
-                    CreatedAt = item.CreatedAt
+                    CreatedAt = item.CreatedAt,
+                    Complexity = item.Complexity,
+                    RequiredSkillLevel = item.RequiredSkillLevel,
+                    Priority = item.Priority,
+                    ExpectedTeamSize = item.ExpectedTeamSize
                 })
                 .ToListAsync();
 
@@ -194,6 +241,15 @@ namespace AllocServer.Services.Task_Services
                 throw new ArgumentException("Gia tri uoc tinh phai tu 0.01 den 99999999.99.");
             }
 
+            var complexity = NormalizeOptionalComplexity(request.Complexity) ?? "Medium";
+            var requiredSkillLevel = NormalizeOptionalRequiredSkillLevel(request.RequiredSkillLevel) ?? "Medium";
+            var priority = NormalizeOptionalPriority(request.Priority) ?? "Medium";
+            var expectedTeamSize = request.ExpectedTeamSize;
+            if (expectedTeamSize < 1)
+            {
+                throw new ArgumentException("So luong thanh vien du kien (ExpectedTeamSize) phai lon hon hoac bang 1.");
+            }
+
             ValidateTaskDates(project, request.StartDate, request.EndDate);
 
             var task = new ProjectTask
@@ -204,7 +260,11 @@ namespace AllocServer.Services.Task_Services
                 DurationType = durationType,
                 EstimatedValue = request.EstimatedValue,
                 StartDate = request.StartDate,
-                EndDate = request.EndDate
+                EndDate = request.EndDate,
+                Complexity = complexity,
+                RequiredSkillLevel = requiredSkillLevel,
+                Priority = priority,
+                ExpectedTeamSize = expectedTeamSize
             };
 
             _context.ProjectTasks.Add(task);
@@ -242,6 +302,34 @@ namespace AllocServer.Services.Task_Services
                 throw new ArgumentException("Gia tri uoc tinh phai tu 0.01 den 99999999.99.");
             }
 
+            var complexity = NormalizeOptionalComplexity(request.Complexity);
+            if (complexity == null)
+            {
+                throw new ArgumentException("Do phuc tap (Complexity) la bat buoc.");
+            }
+
+            var requiredSkillLevel = NormalizeOptionalRequiredSkillLevel(request.RequiredSkillLevel);
+            if (requiredSkillLevel == null)
+            {
+                throw new ArgumentException("Yeu cau trinh do (RequiredSkillLevel) la bat buoc.");
+            }
+
+            var priority = NormalizeOptionalPriority(request.Priority);
+            if (priority == null)
+            {
+                throw new ArgumentException("Muc do uu tien (Priority) la bat buoc.");
+            }
+
+            if (request.ExpectedTeamSize == null)
+            {
+                throw new ArgumentException("So luong thanh vien du kien (ExpectedTeamSize) la bat buoc.");
+            }
+            var expectedTeamSize = request.ExpectedTeamSize.Value;
+            if (expectedTeamSize < 1)
+            {
+                throw new ArgumentException("So luong thanh vien du kien (ExpectedTeamSize) phai lon hon hoac bang 1.");
+            }
+
             ValidateTaskDates(project, request.StartDate, request.EndDate);
 
             task.TaskName = taskName;
@@ -250,6 +338,10 @@ namespace AllocServer.Services.Task_Services
             task.StartDate = request.StartDate;
             task.EndDate = request.EndDate;
             task.Status = status;
+            task.Complexity = complexity;
+            task.RequiredSkillLevel = requiredSkillLevel;
+            task.Priority = priority;
+            task.ExpectedTeamSize = expectedTeamSize;
 
             await _context.SaveChangesAsync();
             return MapTask(task);
@@ -779,7 +871,11 @@ namespace AllocServer.Services.Task_Services
                 EstimatedValue = task.EstimatedValue,
                 StartDate = task.StartDate,
                 EndDate = task.EndDate,
-                CreatedAt = task.CreatedAt
+                CreatedAt = task.CreatedAt,
+                Complexity = task.Complexity,
+                RequiredSkillLevel = task.RequiredSkillLevel,
+                Priority = task.Priority,
+                ExpectedTeamSize = task.ExpectedTeamSize
             };
         }
 
@@ -852,6 +948,75 @@ namespace AllocServer.Services.Task_Services
                 SuccessorTaskId = taskDependency.SuccessorTaskID,
                 DependencyType = taskDependency.DependencyType
             };
+        }
+
+        private static string? NormalizeOptionalComplexity(string? complexity)
+        {
+            var normalized = NormalizeOptionalString(complexity);
+            if (normalized == null)
+                return null;
+
+            var candidate = normalized.ToUpperInvariant() switch
+            {
+                "LOW" => "Low",
+                "MEDIUM" => "Medium",
+                "HIGH" => "High",
+                "CRITICAL" => "Critical",
+                _ => normalized
+            };
+
+            if (!AllowedComplexities.Contains(candidate))
+            {
+                throw new ArgumentException("Do phuc tap (Complexity) phai la Low, Medium, High hoac Critical.");
+            }
+
+            return candidate;
+        }
+
+        private static string? NormalizeOptionalRequiredSkillLevel(string? skillLevel)
+        {
+            var normalized = NormalizeOptionalString(skillLevel);
+            if (normalized == null)
+                return null;
+
+            var candidate = normalized.ToUpperInvariant() switch
+            {
+                "LOW" => "Low",
+                "MEDIUM" => "Medium",
+                "HIGH" => "High",
+                "EXPERT" => "Expert",
+                _ => normalized
+            };
+
+            if (!AllowedSkillLevels.Contains(candidate))
+            {
+                throw new ArgumentException("Yeu cau trinh do (RequiredSkillLevel) phai la Low, Medium, High hoac Expert.");
+            }
+
+            return candidate;
+        }
+
+        private static string? NormalizeOptionalPriority(string? priority)
+        {
+            var normalized = NormalizeOptionalString(priority);
+            if (normalized == null)
+                return null;
+
+            var candidate = normalized.ToUpperInvariant() switch
+            {
+                "LOW" => "Low",
+                "MEDIUM" => "Medium",
+                "HIGH" => "High",
+                "CRITICAL" => "Critical",
+                _ => normalized
+            };
+
+            if (!AllowedPriorities.Contains(candidate))
+            {
+                throw new ArgumentException("Muc do uu tien (Priority) phai la Low, Medium, High hoac Critical.");
+            }
+
+            return candidate;
         }
 
         private static string? NormalizeTaskStatus(string? status, bool allowDefault)

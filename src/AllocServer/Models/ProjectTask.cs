@@ -25,6 +25,21 @@ namespace AllocServer.Models
         [StringLength(20)]
         public string? DurationType { get; set; }
 
+        [Required]
+        [StringLength(20)]
+        public string Complexity { get; set; } = "Medium";
+
+        [Required]
+        [StringLength(20)]
+        public string RequiredSkillLevel { get; set; } = "Medium";
+
+        [Required]
+        [StringLength(20)]
+        public string Priority { get; set; } = "Medium";
+
+        [Required]
+        public int ExpectedTeamSize { get; set; } = 1;
+
         public decimal EstimatedValue { get; set; }
 
         public DateOnly? StartDate { get; set; }
