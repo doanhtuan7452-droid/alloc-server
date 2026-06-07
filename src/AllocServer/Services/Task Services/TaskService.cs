@@ -332,6 +332,8 @@ namespace AllocServer.Services.Task_Services
 
             ValidateTaskDates(project, request.StartDate, request.EndDate);
 
+            var oldStatus = task.Status;
+
             task.TaskName = taskName;
             task.DurationType = durationType;
             task.EstimatedValue = request.EstimatedValue;
@@ -344,6 +346,12 @@ namespace AllocServer.Services.Task_Services
             task.ExpectedTeamSize = expectedTeamSize;
 
             await _context.SaveChangesAsync();
+
+            if (oldStatus != status)
+            {
+                await _eventPublisher.PublishAsync(new TaskStatusChangedEvent(task.TaskID, oldStatus, status));
+            }
+
             return MapTask(task);
         }
 

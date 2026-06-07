@@ -492,40 +492,62 @@ namespace AllocServer.Services.Workspace_Services
 
             await EnsureMemberQuotaAvailableAsync(workspaceId);
 
-            var workspaceMember = new WorkspaceMember
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                WorkspaceID = workspaceId,
-                ResourceID = resource.ResourceID,
-                EmployeeCode = $"EMP{resource.ResourceID:D4}",
-                WorkspaceRoleID = role.WorkspaceRoleID,
-                BaseSalaryMonth = request.BaseSalaryMonth ?? 0,
-                OTRatePerHour = request.OTRatePerHour ?? 0,
-                Status = "Active"
-            };
-
-            _context.WorkspaceMembers.Add(workspaceMember);
-            await _context.SaveChangesAsync();
-
-            return new WorkspaceMemberDetailResponse
-            {
-                WorkspaceMemberID = workspaceMember.WorkspaceMemberID,
-                Resource = new WorkspaceMemberResourceResponse
+                var workspaceMember = new WorkspaceMember
                 {
+                    WorkspaceID = workspaceId,
                     ResourceID = resource.ResourceID,
-                    FullName = resource.FullName,
-                    PhoneNumber = resource.PhoneNumber,
-                    AvatarURL = resource.AvatarURL,
-                    Timezone = resource.Timezone
-                },
-                EmployeeCode = workspaceMember.EmployeeCode,
-                Status = workspaceMember.Status,
-                JoinedAt = workspaceMember.JoinedAt,
-                Role = new WorkspaceRoleSummaryResponse
-                {
+                    EmployeeCode = $"EMP{resource.ResourceID:D4}",
                     WorkspaceRoleID = role.WorkspaceRoleID,
-                    RoleName = role.RoleName
-                }
-            };
+                    BaseSalaryMonth = request.BaseSalaryMonth ?? 0,
+                    OTRatePerHour = request.OTRatePerHour ?? 0,
+                    Status = "Active"
+                };
+
+                _context.WorkspaceMembers.Add(workspaceMember);
+                await _context.SaveChangesAsync();
+
+                // Auto-create default profile inside transaction
+                var profile = new WorkspaceMemberProfile
+                {
+                    WorkspaceMemberID = workspaceMember.WorkspaceMemberID,
+                    ExperienceYears = 0,
+                    EducationLevel = "Bachelor",
+                    LastEvaluatedAt = DateTime.UtcNow
+                };
+                _context.WorkspaceMemberProfiles.Add(profile);
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return new WorkspaceMemberDetailResponse
+                {
+                    WorkspaceMemberID = workspaceMember.WorkspaceMemberID,
+                    Resource = new WorkspaceMemberResourceResponse
+                    {
+                        ResourceID = resource.ResourceID,
+                        FullName = resource.FullName,
+                        PhoneNumber = resource.PhoneNumber,
+                        AvatarURL = resource.AvatarURL,
+                        Timezone = resource.Timezone
+                    },
+                    EmployeeCode = workspaceMember.EmployeeCode,
+                    Status = workspaceMember.Status,
+                    JoinedAt = workspaceMember.JoinedAt,
+                    Role = new WorkspaceRoleSummaryResponse
+                    {
+                        WorkspaceRoleID = role.WorkspaceRoleID,
+                        RoleName = role.RoleName
+                    }
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         public async Task<bool> UpdateMemberStatusAsync(

@@ -10,6 +10,13 @@ namespace AllocServer.Filters
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
     public class WorkspaceAuthorizeAttribute : Attribute, IAsyncAuthorizationFilter
     {
+        private readonly string? _requiredPermissionId;
+
+        public WorkspaceAuthorizeAttribute(string? requiredPermissionId = null)
+        {
+            _requiredPermissionId = requiredPermissionId;
+        }
+
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
             var user = context.HttpContext.User;
@@ -34,8 +41,6 @@ namespace AllocServer.Filters
             if (!context.RouteData.Values.TryGetValue("workspaceId", out var workspaceIdObj) 
                 || !int.TryParse(workspaceIdObj?.ToString(), out var workspaceId))
             {
-                // If the route doesn't have workspaceId, we can't authorize. 
-                // Return Bad Request or Forbid.
                 context.Result = new BadRequestObjectResult(new { message = "Missing workspaceId in route." });
                 return;
             }
@@ -43,17 +48,39 @@ namespace AllocServer.Filters
             // Check against database
             var dbContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
 
-            var hasAccess = await dbContext.WorkspaceMembers
+            var member = await dbContext.WorkspaceMembers
+                .Include(m => m.WorkspaceRole)
                 .Include(m => m.Resource)
                 .Include(m => m.Workspace)
-                .AnyAsync(m => m.WorkspaceID == workspaceId 
+                .Where(m => m.WorkspaceID == workspaceId 
                             && m.Resource.AccountID == accountId 
                             && m.Status == "Active"
-                            && !m.Workspace.IsDeleted);
+                            && !m.Workspace.IsDeleted)
+                .FirstOrDefaultAsync();
 
-            if (!hasAccess)
+            if (member == null)
             {
                 context.Result = new ForbidResult();
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_requiredPermissionId))
+            {
+                var hasPermission = await dbContext.RolePermissions
+                    .AsNoTracking()
+                    .AnyAsync(rp => rp.WorkspaceRoleID == member.WorkspaceRoleID 
+                                 && rp.PermissionID == _requiredPermissionId);
+
+                var isOwnerFallback = string.Equals(
+                    member.WorkspaceRole?.RoleName,
+                    "Owner",
+                    StringComparison.OrdinalIgnoreCase);
+
+                if (!hasPermission && !isOwnerFallback)
+                {
+                    context.Result = new ForbidResult();
+                    return;
+                }
             }
         }
     }

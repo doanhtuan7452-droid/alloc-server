@@ -114,6 +114,17 @@ namespace AllocServer.Controllers
                 _context.WorkspaceMembers.Add(workspaceMember);
                 await _context.SaveChangesAsync();
 
+                // 5. Tao Profile mac dinh cho Owner
+                var ownerProfile = new WorkspaceMemberProfile
+                {
+                    WorkspaceMemberID = workspaceMember.WorkspaceMemberID,
+                    ExperienceYears = 0,
+                    EducationLevel = "Bachelor",
+                    LastEvaluatedAt = DateTime.UtcNow
+                };
+                _context.WorkspaceMemberProfiles.Add(ownerProfile);
+                await _context.SaveChangesAsync();
+
                 await transaction.CommitAsync();
 
                 // Lưu ý: Gói FREE đã được tự động thêm vào nhờ Database Trigger trg_AutoAssignFreePlan

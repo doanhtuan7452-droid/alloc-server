@@ -44,12 +44,33 @@ namespace AllocServer.Data
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<NotificationDeviceToken> NotificationDeviceTokens { get; set; }
 
+        // WorkspaceMemberProfile Entities
+        public DbSet<WorkspaceMemberProfile> WorkspaceMemberProfiles { get; set; }
+        public DbSet<Skill> Skills { get; set; }
+        public DbSet<ResourceSkill> ResourceSkills { get; set; }
+        public DbSet<ReviewCycle> ReviewCycles { get; set; }
+        public DbSet<MemberEvaluation> MemberEvaluations { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
             modelBuilder.Entity<Account>()
                 .HasQueryFilter(a => !a.IsDeleted);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .HasQueryFilter(p => !p.IsDeleted);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .HasIndex(p => p.WorkspaceMemberID)
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0");
+
+            modelBuilder.Entity<ReviewCycle>()
+                .HasQueryFilter(rc => !rc.IsDeleted);
+
+            modelBuilder.Entity<Skill>()
+                .HasQueryFilter(s => !s.IsDeleted);
 
             modelBuilder.Entity<Resource>()
                 .HasQueryFilter(r => !r.IsDeleted);
@@ -573,6 +594,160 @@ namespace AllocServer.Data
                 .WithMany()
                 .HasForeignKey(t => t.AccountID)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // WorkspaceMemberProfile Configuration
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .HasOne(p => p.WorkspaceMember)
+                .WithOne()
+                .HasForeignKey<WorkspaceMemberProfile>(p => p.WorkspaceMemberID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.AvgSoftSkillScore)
+                .HasComputedColumnSql("(([CommunicationScore]+[LeadershipScore]+[ProblemSolvingScore])/3.0)", stored: true);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.TechnicalSkillScore)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.CommunicationScore)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.LeadershipScore)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.ProblemSolvingScore)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.AttendanceRate)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(100.00m);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.ConflictRate)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0.00m);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.PerformanceRating)
+                .HasColumnType("VARCHAR(20)")
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("Average");
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .Property(p => p.EducationLevel)
+                .HasColumnType("VARCHAR(50)")
+                .HasMaxLength(50)
+                .IsUnicode(false);
+
+            modelBuilder.Entity<WorkspaceMemberProfile>()
+                .ToTable(t =>
+                {
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_EducationLevel", "EducationLevel IN ('High School', 'Diploma', 'Bachelor', 'Master', 'PhD')");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_PerformanceRating", "PerformanceRating IN ('Poor', 'Average', 'Excellent', 'Outstanding')");
+                });
+
+            // ResourceSkill Configuration
+            modelBuilder.Entity<ResourceSkill>()
+                .HasKey(rs => new { rs.ResourceID, rs.SkillID });
+
+            modelBuilder.Entity<ResourceSkill>()
+                .HasOne(rs => rs.Resource)
+                .WithMany()
+                .HasForeignKey(rs => rs.ResourceID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ResourceSkill>()
+                .HasOne(rs => rs.Skill)
+                .WithMany()
+                .HasForeignKey(rs => rs.SkillID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ReviewCycle Configuration
+            modelBuilder.Entity<ReviewCycle>()
+                .HasOne(rc => rc.Workspace)
+                .WithMany()
+                .HasForeignKey(rc => rc.WorkspaceID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ReviewCycle>()
+                .HasOne(rc => rc.Creator)
+                .WithMany()
+                .HasForeignKey(rc => rc.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ReviewCycle>()
+                .Property(rc => rc.Status)
+                .HasColumnType("VARCHAR(50)")
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasDefaultValue("Draft");
+
+            modelBuilder.Entity<ReviewCycle>()
+                .ToTable(t => t.HasCheckConstraint("CHK_ReviewCycles_Status", "Status IN ('Draft', 'Active', 'Completed', 'Cancelled')"));
+
+            // MemberEvaluation Configuration
+            modelBuilder.Entity<MemberEvaluation>()
+                .HasOne(me => me.ReviewCycle)
+                .WithMany()
+                .HasForeignKey(me => me.CycleID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .HasOne(me => me.Reviewee)
+                .WithMany()
+                .HasForeignKey(me => me.RevieweeID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .HasOne(me => me.Reviewer)
+                .WithMany()
+                .HasForeignKey(me => me.ReviewerID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .Property(me => me.CommunicationScore)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .Property(me => me.LeadershipScore)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .Property(me => me.ProblemSolvingScore)
+                .HasColumnType("DECIMAL(5,2)")
+                .HasDefaultValue(0);
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .Property(me => me.EvaluationType)
+                .HasColumnType("VARCHAR(50)")
+                .HasMaxLength(50)
+                .IsUnicode(false);
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .Property(me => me.Status)
+                .HasColumnType("VARCHAR(20)")
+                .HasMaxLength(20)
+                .IsUnicode(false)
+                .HasDefaultValue("Pending");
+
+            modelBuilder.Entity<MemberEvaluation>()
+                .ToTable(t =>
+                {
+                    t.HasCheckConstraint("CHK_MemberEvaluations_EvaluationType", "EvaluationType IN ('Self', 'Manager', 'Peer')");
+                    t.HasCheckConstraint("CHK_MemberEvaluations_Status", "Status IN ('Pending', 'Submitted')");
+                });
         }
     }
 }

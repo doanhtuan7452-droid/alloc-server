@@ -22,6 +22,7 @@ using AllocServer.Interfaces.Storage;
 using AllocServer.Interfaces.Tasks;
 using AllocServer.Interfaces.Timesheets;
 using AllocServer.Interfaces.Workspaces;
+using AllocServer.Interfaces.WorkspaceMemberProfiles;
 using AllocServer.Models;
 using AllocServer.Hubs;
 using AllocServer.Events;
@@ -44,12 +45,20 @@ using AllocServer.Services.Storage;
 using AllocServer.Services.Task_Services;
 using AllocServer.Services.Timesheet_Services;
 using AllocServer.Services.Workspace_Services;
+using AllocServer.Services.WorkspaceMemberProfile_Services;
 using AllocServer.Services.Token_Validation_Handlers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using AllocServer.Constants.Permissions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using Microsoft.AspNetCore.HttpOverrides;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Claims;
+using System.IdentityModel.Tokens.Jwt;
+using AllocServer.DTOs.Common;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -84,6 +93,7 @@ else
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
+builder.Services.AddScoped<IWorkspaceMemberProfileService, WorkspaceMemberProfileService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<ITimesheetService, TimesheetService>();
@@ -95,6 +105,9 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IFirebasePushService, FirebasePushService>();
 builder.Services.AddSingleton<INotificationQueue, NotificationQueue>();
 builder.Services.AddHostedService<NotificationDispatcherService>();
+builder.Services.AddSingleton<IProfileCalculationQueue, ProfileCalculationQueue>();
+builder.Services.AddHostedService<ProfileCalculationDispatcherService>();
+builder.Services.AddHostedService<ProfilePeriodicalBackgroundService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
 builder.Services.AddScoped<IProjectAssetService, ProjectAssetService>();
 builder.Services.AddScoped<IAIInsightService, AIInsightService>();
@@ -223,6 +236,83 @@ builder.Services.AddAuthentication(options =>
 });
 
 // ============================================================
+// Rate Limiting (Spam Prevention)
+// ============================================================
+var rateLimitSettings = builder.Configuration.GetSection("RateLimiting");
+var globalSettings = rateLimitSettings.GetSection("Global");
+var authSettings = rateLimitSettings.GetSection("Auth");
+
+builder.Services.AddRateLimiter(options =>
+{
+    // Phản hồi 429 định dạng JSON chuẩn ApiResponse
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json";
+
+        var response = new ApiResponse
+        {
+            Message = "Too many requests. Please try again later.",
+            ErrorCode = "TOO_MANY_REQUESTS"
+        };
+
+        await context.HttpContext.Response.WriteAsJsonAsync(response, cancellationToken: token);
+    };
+
+    // Đăng ký bộ giới hạn dùng chung (Global) phân vùng theo User ID / IP sử dụng Token Bucket
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        string partitionKey;
+        var path = httpContext.Request.Path.Value ?? "";
+
+        // Kiểm tra xem yêu cầu có thuộc API Auth không để áp dụng giới hạn nghiêm ngặt hơn
+        bool isAuthRoute = path.Contains("/api/v1/auth/", StringComparison.OrdinalIgnoreCase);
+
+        // 1. Phân loại định danh (Partition Key)
+        // Nếu user đã login -> dùng User ID làm key. Ngược lại -> dùng IP thực của client.
+        var userIdClaim = httpContext.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value 
+                          ?? httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrEmpty(userIdClaim))
+        {
+            partitionKey = $"User_{userIdClaim}";
+        }
+        else
+        {
+            var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
+            partitionKey = $"IP_{ip}";
+        }
+
+        // Thêm nhãn loại route vào key để tách biệt quota của auth và global
+        partitionKey = isAuthRoute ? $"Auth_{partitionKey}" : $"Global_{partitionKey}";
+
+        // 2. Trả về TokenBucketRateLimiter tương ứng với chính sách cấu hình
+        if (isAuthRoute)
+        {
+            return RateLimitPartition.GetTokenBucketLimiter(partitionKey, _ => new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = authSettings.GetValue<int>("TokenLimit", 10),
+                TokensPerPeriod = authSettings.GetValue<int>("TokensPerPeriod", 2),
+                ReplenishmentPeriod = TimeSpan.FromSeconds(authSettings.GetValue<int>("ReplenishmentPeriodSeconds", 15)),
+                QueueLimit = authSettings.GetValue<int>("QueueLimit", 0),
+                AutoReplenishment = true
+            });
+        }
+        else
+        {
+            return RateLimitPartition.GetTokenBucketLimiter(partitionKey, _ => new TokenBucketRateLimiterOptions
+            {
+                TokenLimit = globalSettings.GetValue<int>("TokenLimit", 100),
+                TokensPerPeriod = globalSettings.GetValue<int>("TokensPerPeriod", 20),
+                ReplenishmentPeriod = TimeSpan.FromSeconds(globalSettings.GetValue<int>("ReplenishmentPeriodSeconds", 10)),
+                QueueLimit = globalSettings.GetValue<int>("QueueLimit", 0),
+                AutoReplenishment = true
+            });
+        }
+    });
+});
+
+// ============================================================
 // Add services
 // ============================================================
 builder.Services.AddControllers();
@@ -232,9 +322,62 @@ builder.Services.AddSwaggerGen(options =>
 {
     var xmlFilename = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
     options.IncludeXmlComments(System.IO.Path.Combine(AppContext.BaseDirectory, xmlFilename));
+
+    // 1. JWT Bearer token security definition
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header using the Bearer scheme. \r\n\r\n Enter 'Bearer' [space] and then your token in the text input below.\r\n\r\nExample: \"Bearer 12345abcdef\""
+    });
+
+    // 2. Test validation header security definition (dynamic from configuration)
+    var headerName = builder.Configuration["TestTokenSettings:HeaderName"] ?? "X-Alloc-Test-Token";
+    options.AddSecurityDefinition("TestToken", new OpenApiSecurityScheme
+    {
+        Name = headerName,
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Description = $"Security validation header required in non-Production environments.\r\n\r\nEnter the configured secret test validation token (Header: '{headerName}')."
+    });
+
+    // 3. Apply these security requirements globally to all API operations
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            System.Array.Empty<string>()
+        },
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "TestToken"
+                }
+            },
+            System.Array.Empty<string>()
+        }
+    });
 });
 
 var app = builder.Build();
+
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 
 await SeedTimesheetPermissionsAsync(app.Services);
 await SeedExpensePermissionsAsync(app.Services);
@@ -245,10 +388,17 @@ await SeedAIPermissionsAsync(app.Services);
 await SeedAssetPermissionsAsync(app.Services);
 await SeedTaskPermissionsAsync(app.Services);
 await SeedConversationPermissionsAsync(app.Services);
+await SeedMemberProfilePermissionsAsync(app.Services);
 
 // ============================================================
 // HTTP Pipeline
 // ============================================================
+var testTokenSettings = app.Configuration.GetSection("TestTokenSettings");
+if (testTokenSettings.GetValue<bool>("Enabled", false) && !app.Environment.IsProduction())
+{
+    app.UseMiddleware<TestTokenValidationMiddleware>();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -260,7 +410,10 @@ app.UseHttpsRedirection();
 // 1. Xác thực JWT (validate signature, lifetime...)
 app.UseAuthentication();
 
-// 2. Kiểm tra JWT Denylist (sau khi xác thực, trước khi authorize)
+// 2. Giới hạn tần suất request (Rate Limiting) chống spam
+app.UseRateLimiter();
+
+// 3. Kiểm tra JWT Denylist (sau khi xác thực, trước khi authorize)
 //    Chặn ngay nếu JTI có trong In-Memory/Redis cache
 app.UseMiddleware<TokenDenylistMiddleware>();
 
@@ -817,6 +970,72 @@ static async Task SeedConversationPermissionsAsync(IServiceProvider services)
         {
             PermissionID = ConversationPermissionIds.Manage,
             DisplayName = "Manage workspace conversations"
+        }
+    };
+
+    foreach (var permission in permissions)
+    {
+        var existingPermission = await dbContext.WorkspacePermissions
+            .FirstOrDefaultAsync(item => item.PermissionID == permission.PermissionID);
+
+        if (existingPermission == null)
+        {
+            dbContext.WorkspacePermissions.Add(permission);
+        }
+        else
+        {
+            existingPermission.DisplayName = permission.DisplayName;
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+
+    var ownerRoleIds = await dbContext.WorkspaceRoles
+        .Where(role =>
+            role.RoleName == "Owner"
+            && !role.IsDeleted)
+        .Select(role => role.WorkspaceRoleID)
+        .ToListAsync();
+
+    foreach (var ownerRoleId in ownerRoleIds)
+    {
+        foreach (var permission in permissions)
+        {
+            var exists = await dbContext.RolePermissions
+                .AnyAsync(item =>
+                    item.WorkspaceRoleID == ownerRoleId
+                    && item.PermissionID == permission.PermissionID);
+
+            if (!exists)
+            {
+                dbContext.RolePermissions.Add(new RolePermission
+                {
+                    WorkspaceRoleID = ownerRoleId,
+                    PermissionID = permission.PermissionID
+                });
+            }
+        }
+    }
+
+    await dbContext.SaveChangesAsync();
+}
+
+static async Task SeedMemberProfilePermissionsAsync(IServiceProvider services)
+{
+    using var scope = services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    var permissions = new[]
+    {
+        new WorkspacePermission
+        {
+            PermissionID = MemberProfilePermissionIds.View,
+            DisplayName = "View workspace member profiles"
+        },
+        new WorkspacePermission
+        {
+            PermissionID = MemberProfilePermissionIds.Manage,
+            DisplayName = "Manage and edit workspace member profiles"
         }
     };
 
