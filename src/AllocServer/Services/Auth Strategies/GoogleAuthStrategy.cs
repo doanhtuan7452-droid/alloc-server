@@ -1,6 +1,8 @@
+using AllocServer.Configurations;
 using AllocServer.Interfaces.Auth;
 using AllocServer.Models;
 using AllocServer.Models.Auth;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -18,20 +20,23 @@ namespace AllocServer.Services.Auth_Strategies
         private readonly IAccountService _accountService;
         private readonly ITokenService _tokenService;
         private readonly ISessionService _sessionService;
-        private readonly IConfiguration _configuration;
+        private readonly GoogleSettings _googleSettings;
+        private readonly JwtSettings _jwtSettings;
         private readonly HttpClient _httpClient;
 
         public GoogleAuthStrategy(
             IAccountService accountService,
             ITokenService tokenService,
             ISessionService sessionService,
-            IConfiguration configuration,
+            IOptions<GoogleSettings> googleOptions,
+            IOptions<JwtSettings> jwtOptions,
             IHttpClientFactory httpClientFactory)
         {
             _accountService = accountService;
             _tokenService = tokenService;
             _sessionService = sessionService;
-            _configuration = configuration;
+            _googleSettings = googleOptions.Value;
+            _jwtSettings = jwtOptions.Value;
             _httpClient = httpClientFactory.CreateClient("Google");
         }
 
@@ -50,7 +55,7 @@ namespace AllocServer.Services.Auth_Strategies
             }
 
             // 2. Kiểm tra Client ID khớp (bảo mật: tránh token từ app khác)
-            var expectedClientId = _configuration["GoogleSettings:ClientId"];
+            var expectedClientId = _googleSettings.ClientId;
             if (!string.IsNullOrEmpty(expectedClientId) && googlePayload.Audience != expectedClientId)
             {
                 return new AuthStrategyResult
@@ -89,8 +94,7 @@ namespace AllocServer.Services.Auth_Strategies
 
                 var accessToken = _tokenService.GenerateJwtToken(existingAccount);
                 var refreshToken = _tokenService.GenerateRefreshToken();
-                var refreshTokenDays = double.Parse(
-                    _configuration.GetSection("JwtSettings")["RefreshTokenExpirationDays"] ?? "7");
+                var refreshTokenDays = _jwtSettings.RefreshTokenExpirationDays;
 
                 await _sessionService.CreateSessionAsync(
                     existingAccount.AccountID, refreshToken,
@@ -138,8 +142,7 @@ namespace AllocServer.Services.Auth_Strategies
             // 7. Sinh token và tạo session
             var newAccessToken = _tokenService.GenerateJwtToken(createdAccount);
             var newRefreshToken = _tokenService.GenerateRefreshToken();
-            var refreshDays = double.Parse(
-                _configuration.GetSection("JwtSettings")["RefreshTokenExpirationDays"] ?? "7");
+            var refreshDays = _jwtSettings.RefreshTokenExpirationDays;
 
             await _sessionService.CreateSessionAsync(
                 createdAccount.AccountID, newRefreshToken,

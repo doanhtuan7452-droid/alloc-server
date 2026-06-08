@@ -1,7 +1,8 @@
+using AllocServer.Configurations;
 using AllocServer.DTOs.Common;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Threading.Tasks;
 
 namespace AllocServer.Middleware
@@ -17,14 +18,14 @@ namespace AllocServer.Middleware
         private readonly string _headerName;
         private readonly string _secretToken;
 
-        public TestTokenValidationMiddleware(RequestDelegate next, IConfiguration configuration, ILogger<TestTokenValidationMiddleware> logger)
+        public TestTokenValidationMiddleware(RequestDelegate next, IOptions<TestTokenSettings> options, ILogger<TestTokenValidationMiddleware> logger)
         {
             _next = next;
             _logger = logger;
 
-            var section = configuration.GetSection("TestTokenSettings");
-            _headerName = section.GetValue<string>("HeaderName") ?? "X-Alloc-Test-Token";
-            _secretToken = section.GetValue<string>("SecretToken") ?? string.Empty;
+            var settings = options.Value;
+            _headerName = !string.IsNullOrEmpty(settings.HeaderName) ? settings.HeaderName : "X-Alloc-Test-Token";
+            _secretToken = settings.SecretToken ?? string.Empty;
         }
 
         public async Task InvokeAsync(HttpContext context)

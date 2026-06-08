@@ -1,6 +1,9 @@
+using AllocServer.Configurations;
 using AllocServer.Interfaces.Auth;
 using AllocServer.Models;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -10,17 +13,20 @@ namespace AllocServer.Services.Auth_Services
 {
     public class TokenService : ITokenService
     {
-        private readonly IConfiguration _configuration;
+        private readonly JwtSettings _jwtSettings;
 
-        public TokenService(IConfiguration configuration)
+        public TokenService(IOptions<JwtSettings> jwtOptions)
         {
-            _configuration = configuration;
+            _jwtSettings = jwtOptions.Value;
         }
 
         public string GenerateJwtToken(Account account)
         {
-            var jwtSettings = _configuration.GetSection("JwtSettings");
-            var secretKey = jwtSettings["SecretKey"] ?? throw new ArgumentNullException("SecretKey is missing in appsettings");
+            var secretKey = _jwtSettings.SecretKey;
+            if (string.IsNullOrEmpty(secretKey))
+            {
+                throw new ArgumentNullException(nameof(secretKey), "SecretKey is missing in appsettings/configurations");
+            }
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -33,11 +39,13 @@ namespace AllocServer.Services.Auth_Services
                 new Claim("IsSystemAccount", account.IsSystemAccount?.ToString() ?? "False")
             };
 
-            var expirationMinutes = double.Parse(jwtSettings["AccessTokenExpirationMinutes"] ?? "60");
+            var expirationMinutes = _jwtSettings.AccessTokenExpirationMinutes > 0 
+                ? _jwtSettings.AccessTokenExpirationMinutes 
+                : 60;
 
             var token = new JwtSecurityToken(
-                issuer: jwtSettings["Issuer"],
-                audience: jwtSettings["Audience"],
+                issuer: _jwtSettings.Issuer,
+                audience: _jwtSettings.Audience,
                 claims: claims,
                 expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
                 signingCredentials: creds
