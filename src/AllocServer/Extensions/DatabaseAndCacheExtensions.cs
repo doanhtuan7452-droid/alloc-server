@@ -19,11 +19,15 @@ namespace AllocServer.Extensions
             }
             else
             {
+                var redisConn = configuration.GetConnectionString("Redis");
                 services.AddStackExchangeRedisCache(options =>
                 {
-                    options.Configuration = configuration.GetConnectionString("Redis");
+                    options.Configuration = redisConn;
                     options.InstanceName = "DemoWebAPI:";
                 });
+
+                services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(
+                    StackExchange.Redis.ConnectionMultiplexer.Connect(redisConn));
             }
 
             return services;

@@ -19,8 +19,11 @@ namespace AllocServer.Interfaces.Facade
         // --- Refresh Token (Chain of Responsibility) ---
         Task<AuthResponse> RefreshTokenAsync(string refreshToken, string? deviceInfo, string? ipAddress);
 
-        // --- Logout / Revoke (Command Pattern) ---
+        // --- OTP Verification ---
+        Task<bool> RequestOtpAsync(string email);
+        Task<bool> VerifyOtpAsync(string email, string code);
 
+        // --- Logout / Revoke (Command Pattern) ---
         /// <summary>Local Logout: thu hồi 1 phiên + denylist Access Token hiện tại</summary>
         Task<LogoutResult> LocalLogoutAsync(string refreshToken, string jwtId, DateTime tokenExpiresAt, int accountId);
 

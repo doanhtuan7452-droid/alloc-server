@@ -23,6 +23,7 @@ namespace AllocServer.Services.Auth_Strategies
         private readonly GoogleSettings _googleSettings;
         private readonly JwtSettings _jwtSettings;
         private readonly HttpClient _httpClient;
+        private readonly IAvatarGenerationService _avatarGenerationService;
 
         public GoogleAuthStrategy(
             IAccountService accountService,
@@ -30,7 +31,8 @@ namespace AllocServer.Services.Auth_Strategies
             ISessionService sessionService,
             IOptions<GoogleSettings> googleOptions,
             IOptions<JwtSettings> jwtOptions,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            IAvatarGenerationService avatarGenerationService)
         {
             _accountService = accountService;
             _tokenService = tokenService;
@@ -38,6 +40,7 @@ namespace AllocServer.Services.Auth_Strategies
             _googleSettings = googleOptions.Value;
             _jwtSettings = jwtOptions.Value;
             _httpClient = httpClientFactory.CreateClient("Google");
+            _avatarGenerationService = avatarGenerationService;
         }
 
         public async Task<AuthStrategyResult> ExecuteAsync(AuthStrategyContext context)
@@ -90,7 +93,14 @@ namespace AllocServer.Services.Auth_Strategies
                 // → Xác thực thành công → Cấp token cho tài khoản hiện có
                 // → KHÔNG đổi AuthType của account hiện tại
                 // ============================================================
-                await _accountService.UpdateLastLoginAsync(existingAccount.AccountID);
+                if (existingAccount.IsEmailVerified == false)
+                {
+                    await _accountService.VerifyEmailAndLoginAsync(existingAccount.AccountID);
+                }
+                else
+                {
+                    await _accountService.UpdateLastLoginAsync(existingAccount.AccountID);
+                }
 
                 var accessToken = _tokenService.GenerateJwtToken(existingAccount);
                 var refreshToken = _tokenService.GenerateRefreshToken();
@@ -133,7 +143,9 @@ namespace AllocServer.Services.Auth_Strategies
             {
                 AccountID = createdAccount.AccountID,
                 FullName = googleName,
-                AvatarURL = googlePicture,
+                AvatarURL = !string.IsNullOrWhiteSpace(googlePicture)
+                    ? googlePicture
+                    : _avatarGenerationService.GenerateAvatarUrl(googleName, googleEmail),
                 Timezone = "UTC"
             };
 

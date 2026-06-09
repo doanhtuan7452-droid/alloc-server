@@ -57,6 +57,7 @@ namespace AllocServer.Extensions
         public static IServiceCollection AddBusinessServices(this IServiceCollection services)
         {
             // Business Services (Sub-components of Facade)
+            services.AddSingleton<IAvatarGenerationService, AvatarGenerationService>();
             services.AddScoped<ITokenService, TokenService>();
             services.AddScoped<IAccountService, AccountService>();
             services.AddScoped<IWorkspaceService, WorkspaceService>();
@@ -96,6 +97,21 @@ namespace AllocServer.Extensions
             services.AddScoped<LocalRegisterStrategy>();
             services.AddScoped<GoogleAuthStrategy>();
             services.AddScoped<IAuthStrategyFactory, AuthStrategyFactory>();
+
+            // Register Email Send Services & Options Strategy
+            services.AddScoped<GmailSmtpEmailSender>();
+            services.AddScoped<AzureCommunicationEmailSender>();
+            services.AddScoped<IEmailSender>(provider =>
+            {
+                var emailOptions = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<AllocServer.Configurations.EmailSettings>>().Value;
+                
+                return emailOptions.Provider == "AzureCommunication"
+                    ? provider.GetRequiredService<AzureCommunicationEmailSender>()
+                    : provider.GetRequiredService<GmailSmtpEmailSender>();
+            });
+
+            // OTP Service
+            services.AddScoped<IOtpService, OtpService>();
 
             // Chain of Responsibility (Refresh Token Validation)
             services.AddScoped<TokenExistsHandler>();

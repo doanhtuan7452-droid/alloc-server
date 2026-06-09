@@ -34,6 +34,7 @@ namespace AllocServer.Services.Facade_Services
 
         // Command Pattern
         private readonly ILogoutCommandHandler _logoutCommandHandler;
+        private readonly IOtpService _otpService;
 
         public AuthFacade(
             ITokenService tokenService,
@@ -47,7 +48,8 @@ namespace AllocServer.Services.Facade_Services
             TokenNotExpiredHandler tokenNotExpiredHandler,
             AccountActiveHandler accountActiveHandler,
             // Command Pattern
-            ILogoutCommandHandler logoutCommandHandler)
+            ILogoutCommandHandler logoutCommandHandler,
+            IOtpService otpService)
         {
             _tokenService = tokenService;
             _sessionService = sessionService;
@@ -58,6 +60,7 @@ namespace AllocServer.Services.Facade_Services
             _tokenNotExpiredHandler = tokenNotExpiredHandler;
             _accountActiveHandler = accountActiveHandler;
             _logoutCommandHandler = logoutCommandHandler;
+            _otpService = otpService;
         }
 
         // =============================================
@@ -110,6 +113,7 @@ namespace AllocServer.Services.Facade_Services
             {
                 Success = result.Success,
                 ErrorMessage = result.ErrorMessage,
+                Message = result.Message,
                 AccountID = result.AccountID,
                 Email = result.Email,
                 AuthType = result.AuthType,
@@ -136,6 +140,7 @@ namespace AllocServer.Services.Facade_Services
             {
                 Success = result.Success,
                 ErrorMessage = result.ErrorMessage,
+                Message = result.Message,
                 AccountID = result.AccountID,
                 Email = result.Email,
                 AuthType = result.AuthType,
@@ -143,6 +148,20 @@ namespace AllocServer.Services.Facade_Services
                 RefreshToken = result.RefreshToken,
                 IsLinked = result.IsLinked
             };
+        }
+
+        // =============================================
+        // OTP VERIFICATION
+        // =============================================
+
+        public async Task<bool> RequestOtpAsync(string email)
+        {
+            return await _otpService.RequestOtpAsync(email);
+        }
+
+        public async Task<bool> VerifyOtpAsync(string email, string code)
+        {
+            return await _otpService.VerifyOtpAsync(email, code);
         }
 
         // =============================================

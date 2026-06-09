@@ -12,6 +12,8 @@ namespace AllocServer.Extensions
             services.Configure<TestTokenSettings>(configuration.GetSection("TestTokenSettings"));
             services.Configure<GoogleSettings>(configuration.GetSection("GoogleSettings"));
             services.Configure<RateLimitSettings>(configuration.GetSection("RateLimiting"));
+            services.Configure<AvatarSettings>(configuration.GetSection("AvatarSettings"));
+            services.Configure<EmailSettings>(configuration.GetSection("EmailSettings"));
 
             return services;
         }

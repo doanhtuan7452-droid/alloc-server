@@ -25,5 +25,7 @@ namespace AllocServer.Models.Auth
         /// Controller dùng field này để quyết định HTTP 200 OK hay 201 Created.
         /// </summary>
         public bool IsLinked { get; set; }
+
+        public string? Message { get; set; }
     }
 }

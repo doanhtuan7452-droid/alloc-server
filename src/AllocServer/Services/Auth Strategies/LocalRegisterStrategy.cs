@@ -15,17 +15,23 @@ namespace AllocServer.Services.Auth_Strategies
         private readonly ITokenService _tokenService;
         private readonly ISessionService _sessionService;
         private readonly IConfiguration _configuration;
+        private readonly IAvatarGenerationService _avatarGenerationService;
+        private readonly IOtpService _otpService;
 
         public LocalRegisterStrategy(
             IAccountService accountService,
             ITokenService tokenService,
             ISessionService sessionService,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IAvatarGenerationService avatarGenerationService,
+            IOtpService otpService)
         {
             _accountService = accountService;
             _tokenService = tokenService;
             _sessionService = sessionService;
             _configuration = configuration;
+            _avatarGenerationService = avatarGenerationService;
+            _otpService = otpService;
         }
 
         public async Task<AuthStrategyResult> ExecuteAsync(AuthStrategyContext context)
@@ -62,34 +68,26 @@ namespace AllocServer.Services.Auth_Strategies
             {
                 AccountID = createdAccount.AccountID,
                 FullName = context.FullName ?? string.Empty,
+                AvatarURL = _avatarGenerationService.GenerateAvatarUrl(context.FullName, context.Email!),
                 Timezone = "UTC"
             };
 
             await _accountService.CreateResourceAsync(newResource);
 
-            // 5. Sinh JWT Access Token
-            var accessToken = _tokenService.GenerateJwtToken(createdAccount);
+            // 4.1 Tự động gửi OTP xác minh
+            await _otpService.RequestOtpAsync(createdAccount.Email);
 
-            // 6. Sinh Refresh Token
-            var refreshToken = _tokenService.GenerateRefreshToken();
-            var refreshTokenDays = double.Parse(
-                _configuration.GetSection("JwtSettings")["RefreshTokenExpirationDays"] ?? "7");
-
-            // 7. Lưu Session vào DB
-            await _sessionService.CreateSessionAsync(
-                createdAccount.AccountID, refreshToken,
-                context.DeviceInfo, context.IpAddress,
-                (int)refreshTokenDays);
-
+            // 5. Đóng cửa hậu JWT: KHÔNG cấp Token ngay.
             return new AuthStrategyResult
             {
                 Success = true,
                 AccountID = createdAccount.AccountID,
                 Email = createdAccount.Email,
                 AuthType = "Local",
-                AccessToken = accessToken,
-                RefreshToken = refreshToken,
-                IsLinked = false
+                AccessToken = null,
+                RefreshToken = null,
+                IsLinked = false,
+                Message = "Đăng ký thành công. Vui lòng kiểm tra email để kích hoạt tài khoản trước khi đăng nhập."
             };
         }
     }

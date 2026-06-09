@@ -22,6 +22,8 @@ namespace AllocServer.DTOs.Auth
 
         public string? RefreshToken { get; set; }
 
+        public string? Message { get; set; }
+
         /// <summary>
         /// True nếu Google email trùng với tài khoản Local đã tồn tại → đã link thành công
         /// </summary>

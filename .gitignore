@@ -489,3 +489,6 @@ appsettings.Development.json
 appsettings.*.json
 secrets.json
 SQLPRMS2.sql
+
+# Docs file
+docs/

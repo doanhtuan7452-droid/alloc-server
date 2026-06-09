@@ -15,17 +15,20 @@ namespace AllocServer.Services.Auth_Strategies
         private readonly ITokenService _tokenService;
         private readonly ISessionService _sessionService;
         private readonly IConfiguration _configuration;
+        private readonly IOtpService _otpService;
 
         public LocalLoginStrategy(
             IAccountService accountService,
             ITokenService tokenService,
             ISessionService sessionService,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IOtpService otpService)
         {
             _accountService = accountService;
             _tokenService = tokenService;
             _sessionService = sessionService;
             _configuration = configuration;
+            _otpService = otpService;
         }
 
         public async Task<AuthStrategyResult> ExecuteAsync(AuthStrategyContext context)
@@ -54,6 +57,22 @@ namespace AllocServer.Services.Auth_Strategies
                     Success = false,
                     ErrorMessage = "Mật khẩu không chính xác."
                 };
+
+            // 3.1 Chặn đăng nhập nếu chưa xác thực Email
+            if (account.IsEmailVerified == false)
+            {
+                // Tự động gửi lại OTP nhắc nhở (Kiểm tra cooldown 60s nội bộ)
+                var otpSent = await _otpService.RequestOtpAsync(account.Email);
+                var message = otpSent 
+                    ? "Tài khoản chưa được xác thực. Chúng tôi vừa gửi lại mã OTP, vui lòng kiểm tra email."
+                    : "Tài khoản chưa được xác thực. Vui lòng kiểm tra email của bạn (mã OTP được gửi tối đa 1 lần mỗi 60 giây).";
+
+                return new AuthStrategyResult
+                {
+                    Success = false,
+                    ErrorMessage = message
+                };
+            }
 
             // 4. Cập nhật thời gian đăng nhập cuối
             await _accountService.UpdateLastLoginAsync(account.AccountID);

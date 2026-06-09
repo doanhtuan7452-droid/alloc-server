@@ -195,5 +195,60 @@ namespace AllocServer.Controllers
 
             return Ok(new ApiResponse { Message = result.Message });
         }
+
+        // =============================================
+        // OTP VERIFICATION
+        // =============================================
+
+        /// <summary>
+        /// Yêu cầu gửi mã OTP xác minh qua Email.
+        /// Áp dụng Rate Limiting chống spam (1 IP chỉ được gửi 1 lần mỗi 60s).
+        /// </summary>
+        [HttpPost("request-otp")]
+        [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("OtpPolicy")]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> RequestOtp([FromBody] RequestOtpRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            try
+            {
+                var success = await _authFacade.RequestOtpAsync(request.Email);
+                if (success)
+                {
+                    // Thông báo câu mở chống lỗ hổng Account Enumeration
+                    return Ok(new ApiResponse { Message = "Nếu email tồn tại trên hệ thống, mã OTP đã được gửi đến email của bạn." });
+                }
+                
+                // Trả về 400 Bad Request kèm thông điệp hướng dẫn khi dính Cooldown
+                return BadRequest(new ApiResponse { Message = "Yêu cầu gửi OTP quá nhanh. Vui lòng đợi 60 giây giữa các lần yêu cầu." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new ApiResponse { Message = $"Lỗi hệ thống khi gửi OTP: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// Xác thực mã OTP người dùng đăng nhập lần đầu.
+        /// </summary>
+        [HttpPost("verify-otp")]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var success = await _authFacade.VerifyOtpAsync(request.Email, request.Code);
+            if (success)
+            {
+                return Ok(new ApiResponse { Message = "Xác thực mã OTP thành công." });
+            }
+            
+            return BadRequest(new ApiResponse { Message = "Mã OTP không chính xác hoặc đã hết hạn." });
+        }
     }
 }

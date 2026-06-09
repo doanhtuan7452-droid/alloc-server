@@ -9,10 +9,12 @@ namespace AllocServer.Services.Auth_Services
     public class AccountService : IAccountService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IAvatarGenerationService _avatarGenerationService;
 
-        public AccountService(ApplicationDbContext context)
+        public AccountService(ApplicationDbContext context, IAvatarGenerationService avatarGenerationService)
         {
             _context = context;
+            _avatarGenerationService = avatarGenerationService;
         }
 
         // =============================================
@@ -170,11 +172,44 @@ namespace AllocServer.Services.Auth_Services
             if (resource == null)
                 return null;
 
-            resource.FullName = request.FullName.Trim();
+            var oldFullName = resource.FullName;
+            var oldAvatarUrl = resource.AvatarURL;
+
+            var newFullName = request.FullName.Trim();
+            var newAvatarUrl = NormalizeOptionalString(request.AvatarURL);
+
+            resource.FullName = newFullName;
             resource.PhoneNumber = NormalizeOptionalString(request.PhoneNumber);
-            resource.AvatarURL = NormalizeOptionalString(request.AvatarURL);
             resource.Timezone = NormalizeOptionalString(request.Timezone) ?? "UTC";
             account.UpdatedAt = DateTime.UtcNow;
+
+            // Sync Avatar URL logic:
+            if (string.IsNullOrEmpty(newAvatarUrl))
+            {
+                // If the user cleared the avatar or it was not provided, regenerate the default avatar
+                resource.AvatarURL = _avatarGenerationService.GenerateAvatarUrl(newFullName, account.Email);
+            }
+            else
+            {
+                // If a new custom avatar is provided
+                if (newAvatarUrl != oldAvatarUrl)
+                {
+                    resource.AvatarURL = newAvatarUrl;
+                }
+                else
+                {
+                    // Unchanged custom avatar OR unchanged generated avatar.
+                    // If it was a generated avatar and the FullName changed, we regenerate it to match the new name's initials.
+                    if (_avatarGenerationService.IsGeneratedAvatar(oldAvatarUrl) && oldFullName != newFullName)
+                    {
+                        resource.AvatarURL = _avatarGenerationService.GenerateAvatarUrl(newFullName, account.Email);
+                    }
+                    else
+                    {
+                        resource.AvatarURL = newAvatarUrl;
+                    }
+                }
+            }
 
             await _context.SaveChangesAsync();
 
@@ -190,6 +225,42 @@ namespace AllocServer.Services.Auth_Services
             return await _context.Accounts
                 .AsNoTracking()
                 .AnyAsync(a => a.Email == email);
+        }
+
+        public async Task<bool> IsActiveEmailExistsAsync(string email)
+        {
+            return await _context.Accounts
+                .AsNoTracking()
+                .AnyAsync(a => a.Email == email && !a.IsDeleted);
+        }
+
+        public async Task<bool> VerifyEmailAsync(string email)
+        {
+            var account = await _context.Accounts
+                .FirstOrDefaultAsync(a => a.Email == email && !a.IsDeleted);
+
+            if (account == null)
+                return false;
+
+            account.IsEmailVerified = true;
+            account.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task VerifyEmailAndLoginAsync(int accountId)
+        {
+            var account = await _context.Accounts
+                .FirstOrDefaultAsync(a => a.AccountID == accountId);
+
+            if (account != null)
+            {
+                account.IsEmailVerified = true;
+                account.LastLoginAt = DateTime.UtcNow;
+                account.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
         }
 
         public async Task<Account> CreateAccountAsync(Account account)

@@ -87,6 +87,19 @@ namespace AllocServer.Extensions
                     await context.HttpContext.Response.WriteAsJsonAsync(response, cancellationToken: token);
                 };
 
+                // Đăng ký chính sách khắt khe cho gửi OTP (áp dụng IP thực đã được bóc tách bởi ForwardedHeaders)
+                options.AddPolicy("OtpPolicy", httpContext =>
+                {
+                    var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
+                    
+                    return RateLimitPartition.GetFixedWindowLimiter($"Otp_{ip}", _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 1,
+                        Window = TimeSpan.FromSeconds(60),
+                        QueueLimit = 0
+                    });
+                });
+
                 options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
                 {
                     string partitionKey;
