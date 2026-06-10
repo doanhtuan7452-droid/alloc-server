@@ -109,7 +109,7 @@ namespace AllocServer.Services.Notification_Services
 
             if (notification == null)
             {
-                throw new KeyNotFoundException("Notification not found or access denied.");
+                throw new KeyNotFoundException("NotificationNotFound");
             }
 
             if (!notification.IsRead)
@@ -168,7 +168,7 @@ namespace AllocServer.Services.Notification_Services
 
             if (notification == null)
             {
-                throw new KeyNotFoundException("Notification not found or access denied.");
+                throw new KeyNotFoundException("NotificationNotFound");
             }
 
             if (notification.ReferenceType == "Task")

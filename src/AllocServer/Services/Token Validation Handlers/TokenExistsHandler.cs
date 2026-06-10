@@ -1,6 +1,8 @@
 using AllocServer.Contexts;
 using AllocServer.DTOs.Auth;
 using AllocServer.Interfaces.Auth;
+using AllocServer.Resources;
+using Microsoft.Extensions.Localization;
 
 namespace AllocServer.Services.Token_Validation_Handlers
 {
@@ -12,10 +14,12 @@ namespace AllocServer.Services.Token_Validation_Handlers
     public class TokenExistsHandler : BaseTokenValidationHandler
     {
         private readonly ISessionService _sessionService;
+        private readonly IStringLocalizer<AuthResource> _localizer;
 
-        public TokenExistsHandler(ISessionService sessionService)
+        public TokenExistsHandler(ISessionService sessionService, IStringLocalizer<AuthResource> localizer)
         {
             _sessionService = sessionService;
+            _localizer = localizer;
         }
 
         public override async Task<TokenValidationResult> HandleAsync(TokenValidationContext context)
@@ -25,7 +29,7 @@ namespace AllocServer.Services.Token_Validation_Handlers
             if (session == null)
             {
                 // Token không tồn tại trong DB → dừng chain, trả về lỗi
-                return TokenValidationResult.Fail("Refresh Token không hợp lệ hoặc không tồn tại.");
+                return TokenValidationResult.Fail(_localizer["TokenInvalidOrNotExists"]);
             }
 
             // Gán session vào context để các handler sau không cần query lại DB

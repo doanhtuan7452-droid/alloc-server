@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  
+  <data name="TaskNotFound" xml:space="preserve">
+    <value>Không tìm thấy công việc tương ứng.</value>
+  </data>
+  <data name="InternalServerError" xml:space="preserve">
+    <value>Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.</value>
+  </data>
+  
+  <!-- WorkspaceService Exceptions -->
+  <data name="OwnerProjectCreationOnly" xml:space="preserve">
+    <value>Chỉ Owner mới có quyền tạo dự án.</value>
+  </data>
+  <data name="StartEndDateRequired" xml:space="preserve">
+    <value>Ngày bắt đầu và ngày kết thúc là bắt buộc.</value>
+  </data>
+  <data name="EndDateBeforeStartDate" xml:space="preserve">
+    <value>Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.</value>
+  </data>
+  <data name="InvalidMethodology" xml:space="preserve">
+    <value>Methodology chỉ nhận Agile, Waterfall, Scrum, Kanban hoặc Hybrid.</value>
+  </data>
+  <data name="CurrencyCodeTooLong" xml:space="preserve">
+    <value>Mã tiền tệ (OriginalCurrencyCode) không được vượt quá 5 ký tự.</value>
+  </data>
+  <data name="InvalidExchangeRate" xml:space="preserve">
+    <value>Tỷ giá (ExchangeRateToUSD) phải lớn hơn 0 và nhỏ hơn hoặc bằng 999999.9999.</value>
+  </data>
+  <data name="ProjectNameExists" xml:space="preserve">
+    <value>Tên dự án đã tồn tại trong Workspace.</value>
+  </data>
+  <data name="OwnerWorkspaceUpdateOnly" xml:space="preserve">
+    <value>Chỉ Owner mới có quyền cập nhật thông tin Workspace.</value>
+  </data>
+  <data name="OwnerWorkspaceDeleteOnly" xml:space="preserve">
+    <value>Chỉ Owner mới có quyền xóa Workspace.</value>
+  </data>
+  <data name="EmailRequired" xml:space="preserve">
+    <value>Email không được để trống.</value>
+  </data>
+  <data name="RoleNotFound" xml:space="preserve">
+    <value>Không tìm thấy vai trò trong Workspace.</value>
+  </data>
+  <data name="AccountProfileNotFound" xml:space="preserve">
+    <value>Không tìm thấy tài khoản hoặc profile Resource.</value>
+  </data>
+  <data name="MemberAlreadyExists" xml:space="preserve">
+    <value>Nhân sự đã tồn tại trong Workspace.</value>
+  </data>
+  <data name="InvalidMemberStatus" xml:space="preserve">
+    <value>Trạng thái (Status) chỉ nhận Active hoặc Deactivated.</value>
+  </data>
+  <data name="OwnerCannotDeactivateSelf" xml:space="preserve">
+    <value>Owner không thể tự vô hiệu hóa chính mình.</value>
+  </data>
+  <data name="OwnerMemberManagementOnly" xml:space="preserve">
+    <value>Chỉ Owner mới có quyền quản trị nhân sự Workspace.</value>
+  </data>
+  <data name="MemberQuotaExceeded" xml:space="preserve">
+    <value>Workspace đã đạt giới hạn số lượng thành viên của gói cước.</value>
+  </data>
+
+  <!-- TaskService Exceptions -->
+  <data name="InvalidTaskStatus" xml:space="preserve">
+    <value>Trạng thái (Status) chỉ nhận To-do, In Progress, Review hoặc Done.</value>
+  </data>
+  <data name="InvalidDurationType" xml:space="preserve">
+    <value>Loại thời lượng (DurationType) chỉ nhận Hour, Day hoặc StoryPoint.</value>
+  </data>
+  <data name="InvalidStartDateRange" xml:space="preserve">
+    <value>Ngày bắt đầu kết thúc (startDateTo) phải lớn hơn hoặc bằng ngày bắt đầu (startDateFrom).</value>
+  </data>
+  <data name="InvalidEndDateRange" xml:space="preserve">
+    <value>Ngày kết thúc (endDateTo) phải lớn hơn hoặc bằng ngày kết thúc (endDateFrom).</value>
+  </data>
+  <data name="TaskNameRequired" xml:space="preserve">
+    <value>Tên công việc không được để trống.</value>
+  </data>
+  <data name="InvalidEstimatedValue" xml:space="preserve">
+    <value>Giá trị ước tính phải từ 0.01 đến 99999999.99.</value>
+  </data>
+  <data name="InvalidExpectedTeamSize" xml:space="preserve">
+    <value>Số lượng thành viên dự kiến (ExpectedTeamSize) phải lớn hơn hoặc bằng 1.</value>
+  </data>
+  <data name="ComplexityRequired" xml:space="preserve">
+    <value>Độ phức tạp (Complexity) là bắt buộc.</value>
+  </data>
+  <data name="RequiredSkillLevelRequired" xml:space="preserve">
+    <value>Yêu cầu trình độ (RequiredSkillLevel) là bắt buộc.</value>
+  </data>
+  <data name="PriorityRequired" xml:space="preserve">
+    <value>Mức độ ưu tiên (Priority) là bắt buộc.</value>
+  </data>
+  <data name="ExpectedTeamSizeRequired" xml:space="preserve">
+    <value>Số lượng thành viên dự kiến (ExpectedTeamSize) là bắt buộc.</value>
+  </data>
+  <data name="InvalidAssigneeType" xml:space="preserve">
+    <value>Loại phân công (AssigneeType) chỉ nhận Assignee, Reviewer hoặc Watcher.</value>
+  </data>
+  <data name="InvalidTaskMember" xml:space="preserve">
+    <value>Thành viên không tồn tại, không hoạt động hoặc không thuộc Workspace của công việc.</value>
+  </data>
+  <data name="MemberRoleAlreadyAssigned" xml:space="preserve">
+    <value>Thành viên đã được gán vai trò này trong công việc.</value>
+  </data>
+  <data name="InvalidMemberId" xml:space="preserve">
+    <value>Mã thành viên (memberId) phải lớn hơn 0.</value>
+  </data>
+  <data name="InvalidDependencyType" xml:space="preserve">
+    <value>Loại phụ thuộc (DependencyType) chỉ nhận FS, SS, FF hoặc SF.</value>
+  </data>
+  <data name="TaskSelfDependencyNotAllowed" xml:space="preserve">
+    <value>Công việc không thể phụ thuộc vào chính nó.</value>
+  </data>
+  <data name="PredecessorTaskNotFound" xml:space="preserve">
+    <value>Không tìm thấy công việc tiền nhiệm (predecessor task).</value>
+  </data>
+  <data name="PredecessorTaskProjectMismatch" xml:space="preserve">
+    <value>Công việc tiền nhiệm phải thuộc cùng dự án với công việc kế nhiệm.</value>
+  </data>
+  <data name="DependencyAlreadyExists" xml:space="preserve">
+    <value>Mối quan hệ phụ thuộc này đã tồn tại.</value>
+  </data>
+  <data name="DependencyCycleDetected" xml:space="preserve">
+    <value>Không thể tạo sự phụ thuộc vì sẽ gây ra vòng lặp.</value>
+  </data>
+  <data name="CommentContentRequired" xml:space="preserve">
+    <value>Nội dung bình luận không được để trống.</value>
+  </data>
+  <data name="ParentCommentNotFound" xml:space="preserve">
+    <value>Không tìm thấy bình luận cha.</value>
+  </data>
+  <data name="CommentNotFound" xml:space="preserve">
+    <value>Không tìm thấy bình luận.</value>
+  </data>
+  <data name="UnauthorizedCommentEdit" xml:space="preserve">
+    <value>Bạn không có quyền sửa bình luận này.</value>
+  </data>
+  <data name="UnauthorizedCommentDelete" xml:space="preserve">
+    <value>Bạn không có quyền xóa bình luận này.</value>
+  </data>
+  <data name="AssetIdsRequired" xml:space="preserve">
+    <value>Danh sách mã tài liệu (AssetIds) không được rỗng.</value>
+  </data>
+  <data name="InvalidAssets" xml:space="preserve">
+    <value>Một hoặc nhiều tài liệu không hợp lệ (không tồn tại, đã bị xóa hoặc thuộc dự án khác).</value>
+  </data>
+  <data name="TaskAssetNotFound" xml:space="preserve">
+    <value>Không tìm thấy liên kết tài liệu với công việc.</value>
+  </data>
+  <data name="UnauthorizedWorkspaceMember" xml:space="preserve">
+    <value>Bạn không phải là thành viên của Workspace này.</value>
+  </data>
+  <data name="TaskEndDateBeforeStartDate" xml:space="preserve">
+    <value>Ngày kết thúc công việc phải lớn hơn hoặc bằng ngày bắt đầu công việc.</value>
+  </data>
+  <data name="TaskStartDateBeforeProjectStart" xml:space="preserve">
+    <value>Ngày bắt đầu công việc không được nhỏ hơn ngày bắt đầu dự án.</value>
+  </data>
+  <data name="TaskEndDateAfterProjectEnd" xml:space="preserve">
+    <value>Ngày kết thúc công việc không được lớn hơn ngày kết thúc dự án.</value>
+  </data>
+  <data name="InvalidComplexity" xml:space="preserve">
+    <value>Độ phức tạp (Complexity) phải là Low, Medium, High hoặc Critical.</value>
+  </data>
+  <data name="InvalidSkillLevel" xml:space="preserve">
+    <value>Yêu cầu trình độ (RequiredSkillLevel) phải là Low, Medium, High hoặc Expert.</value>
+  </data>
+  <data name="InvalidPriority" xml:space="preserve">
+    <value>Mức độ ưu tiên (Priority) phải là Low, Medium, High hoặc Critical.</value>
+  </data>
+
+  <!-- TimesheetService Exceptions -->
+  <data name="InvalidDateRange" xml:space="preserve">
+    <value>Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.</value>
+  </data>
+  <data name="UnauthorizedTaskWorkspaceMember" xml:space="preserve">
+    <value>Bạn không phải thành viên hoạt động của Workspace chứa công việc này.</value>
+  </data>
+  <data name="ActiveMemberNotFound" xml:space="preserve">
+    <value>Không tìm thấy thành viên hoạt động.</value>
+  </data>
+  <data name="MemberWorkspaceMismatch" xml:space="preserve">
+    <value>Thành viên không thuộc Workspace đã chọn.</value>
+  </data>
+  <data name="UnauthorizedTimesheetView" xml:space="preserve">
+    <value>Bạn không có quyền xem bảng chấm công của thành viên khác.</value>
+  </data>
+  <data name="NegativeHoursNotAllowed" xml:space="preserve">
+    <value>Số giờ làm việc không được âm.</value>
+  </data>
+  <data name="ZeroHoursNotAllowed" xml:space="preserve">
+    <value>Tổng số giờ làm việc phải lớn hơn 0.</value>
+  </data>
+  <data name="ExceedDailyHoursLimit" xml:space="preserve">
+    <value>Tổng số giờ làm việc trong ngày không được vượt quá 24.</value>
+  </data>
+  <data name="WorkDateBeforeTaskStart" xml:space="preserve">
+    <value>Ngày làm việc không được nhỏ hơn ngày bắt đầu công việc.</value>
+  </data>
+  <data name="WorkDateAfterTaskEnd" xml:space="preserve">
+    <value>Ngày làm việc không được lớn hơn ngày kết thúc công việc.</value>
+  </data>
+
+  <!-- WorkspaceMemberProfileService Exceptions -->
+  <data name="ProfileAlreadyExists" xml:space="preserve">
+    <value>Hồ sơ đã tồn tại cho nhân sự này. Vui lòng cập nhật hoặc khôi phục hồ sơ thay vì tạo mới.</value>
+  </data>
+  <data name="MemberProfileNotFound" xml:space="preserve">
+    <value>Không tìm thấy hồ sơ của nhân sự.</value>
+  </data>
+  <data name="WorkspaceNotFound" xml:space="preserve">
+    <value>Không tìm thấy Workspace.</value>
+  </data>
+  <data name="CreatorNotActiveMember" xml:space="preserve">
+    <value>Người tạo không phải là thành viên hoạt động của Workspace.</value>
+  </data>
+  <data name="ReviewCycleNotFound" xml:space="preserve">
+    <value>Không tìm thấy chu kỳ đánh giá.</value>
+  </data>
+  <data name="CannotStartNonDraftCycle" xml:space="preserve">
+    <value>Chỉ có thể bắt đầu chu kỳ đánh giá đang ở trạng thái nháp (Draft).</value>
+  </data>
+  <data name="CannotCompleteNonActiveCycle" xml:space="preserve">
+    <value>Chỉ có thể hoàn thành chu kỳ đánh giá đang hoạt động (Active).</value>
+  </data>
+  <data name="CannotSubmitInNonActiveCycle" xml:space="preserve">
+    <value>Chỉ có thể nộp đánh giá trong chu kỳ đang hoạt động (Active).</value>
+  </data>
+  <data name="InvalidReviewMembers" xml:space="preserve">
+    <value>Nhân viên được đánh giá hoặc người đánh giá không hợp lệ trong Workspace.</value>
+  </data>
+  <data name="InvalidReviewType" xml:space="preserve">
+    <value>Loại đánh giá không hợp lệ (chỉ chấp nhận Self, Manager, Peer).</value>
+  </data>
+
+  <!-- RiskService Exceptions -->
+  <data name="RiskNameRequired" xml:space="preserve">
+    <value>Tên rủi ro là bắt buộc.</value>
+  </data>
+  <data name="RiskNameMaxLength" xml:space="preserve">
+    <value>Tên rủi ro tối đa 255 ký tự.</value>
+  </data>
+  <data name="InvalidRiskProbability" xml:space="preserve">
+    <value>Xác suất rủi ro (Probability) phải từ 1 đến 5.</value>
+  </data>
+  <data name="InvalidRiskImpact" xml:space="preserve">
+    <value>Mức độ tác động (Impact) phải từ 1 đến 5.</value>
+  </data>
+  <data name="InvalidEstimatedFinancialImpact" xml:space="preserve">
+    <value>Tác động tài chính ước tính phải từ 0 đến 9999999999999999.99.</value>
+  </data>
+  <data name="InvalidMinScore" xml:space="preserve">
+    <value>Điểm tối thiểu (minScore) phải từ 1 đến 25.</value>
+  </data>
+  <data name="InvalidMaxScore" xml:space="preserve">
+    <value>Điểm tối đa (maxScore) phải từ 1 đến 25.</value>
+  </data>
+  <data name="InvalidScoreRange" xml:space="preserve">
+    <value>Điểm tối đa phải lớn hơn hoặc bằng điểm tối thiểu.</value>
+  </data>
+  <data name="ActionPlanRequired" xml:space="preserve">
+    <value>Kế hoạch hành động (ActionPlan) là bắt buộc.</value>
+  </data>
+
+  <!-- RequestService Exceptions -->
+  <data name="StartDateRequired" xml:space="preserve">
+    <value>Ngày bắt đầu là bắt buộc.</value>
+  </data>
+  <data name="EndDateRequired" xml:space="preserve">
+    <value>Ngày kết thúc là bắt buộc.</value>
+  </data>
+  <data name="RequestedDateRequired" xml:space="preserve">
+    <value>Ngày yêu cầu là bắt buộc.</value>
+  </data>
+  <data name="InvalidTaskId" xml:space="preserve">
+    <value>Mã công việc (taskId) phải lớn hơn 0.</value>
+  </data>
+  <data name="LeaveRequestNotFound" xml:space="preserve">
+    <value>Không tìm thấy đơn xin nghỉ phép (LeaveRequest).</value>
+  </data>
+  <data name="OTRequestNotFound" xml:space="preserve">
+    <value>Không tìm thấy đơn làm thêm giờ (OTRequest).</value>
+  </data>
+  <data name="UnauthorizedRequestApproval" xml:space="preserve">
+    <value>Bạn không có quyền duyệt đơn trong Workspace này.</value>
+  </data>
+  <data name="TaskNotFoundInWorkspace" xml:space="preserve">
+    <value>Không tìm thấy công việc trong Workspace này.</value>
+  </data>
+  <data name="RequestedDateBeforeTaskStart" xml:space="preserve">
+    <value>Ngày yêu cầu không được nhỏ hơn ngày bắt đầu công việc.</value>
+  </data>
+  <data name="RequestedDateAfterTaskEnd" xml:space="preserve">
+    <value>Ngày yêu cầu không được lớn hơn ngày kết thúc công việc.</value>
+  </data>
+  <data name="RequestTypeRequired" xml:space="preserve">
+    <value>Loại yêu cầu (requestType) là bắt buộc.</value>
+  </data>
+  <data name="StatusRequired" xml:space="preserve">
+    <value>Trạng thái (status) là bắt buộc.</value>
+  </data>
+  <data name="InvalidRequestStatus" xml:space="preserve">
+    <value>Trạng thái chỉ nhận Approved hoặc Rejected.</value>
+  </data>
+  <data name="RequestAlreadyProcessed" xml:space="preserve">
+    <value>Đơn này đã được xử lý.</value>
+  </data>
+  <data name="InvalidExpectedHours" xml:space="preserve">
+    <value>Số giờ dự kiến (expectedHours) phải từ 0.01 đến 24.</value>
+  </data>
+
+  <!-- RevenueService, ExpenseService & ProjectService Exceptions -->
+  <data name="InvalidRevenueType" xml:space="preserve">
+    <value>Loại doanh thu (Type) chỉ nhận Fixed Price, Time &amp; Material hoặc Milestone.</value>
+  </data>
+  <data name="InvalidRevenueStatus" xml:space="preserve">
+    <value>Trạng thái (Status) chỉ nhận Pending hoặc Received.</value>
+  </data>
+  <data name="InvalidExpectedDateRange" xml:space="preserve">
+    <value>Ngày kết thúc dự kiến (expectedToDate) phải lớn hơn hoặc bằng ngày bắt đầu dự kiến (expectedFromDate).</value>
+  </data>
+  <data name="AmountFilterNegative" xml:space="preserve">
+    <value>Khoản tiền lọc (Amount) không được âm.</value>
+  </data>
+  <data name="AmountFilterExceedsMax" xml:space="preserve">
+    <value>Khoản tiền lọc không được vượt quá 9999999999999999.99.</value>
+  </data>
+  <data name="InvalidAmountRange" xml:space="preserve">
+    <value>Khoản tiền tối đa (maxAmount) phải lớn hơn hoặc bằng khoản tiền tối thiểu (minAmount).</value>
+  </data>
+  <data name="ProjectNameRequired" xml:space="preserve">
+    <value>Tên dự án không được để trống.</value>
+  </data>
+  <data name="InvalidBudget" xml:space="preserve">
+    <value>Ngân sách không hợp lệ.</value>
+  </data>
+  <data name="InvalidRevenue" xml:space="preserve">
+    <value>Doanh thu không hợp lệ.</value>
+  </data>
+  <data name="InvalidProjectStatus" xml:space="preserve">
+    <value>Trạng thái (Status) chỉ nhận Planning, In Progress, Completed, On Hold hoặc Cancelled.</value>
+  </data>
+  <data name="InvalidOriginalCurrencyCode" xml:space="preserve">
+    <value>Mã tiền tệ gốc (OriginalCurrencyCode) không được để trống và không được vượt quá 5 ký tự.</value>
+  </data>
+  <data name="CategoryRequired" xml:space="preserve">
+    <value>Danh mục (Category) là bắt buộc.</value>
+  </data>
+  <data name="CategoryMaxLength" xml:space="preserve">
+    <value>Danh mục tối đa 100 ký tự.</value>
+  </data>
+  <data name="InvalidAmount" xml:space="preserve">
+    <value>Khoản tiền (Amount) phải từ 0.01 đến 9999999999999999.99.</value>
+  </data>
+  <data name="ExpenseDateRequired" xml:space="preserve">
+    <value>Ngày chi tiêu (ExpenseDate) là bắt buộc.</value>
+  </data>
+  <data name="ExpenseDateBeforeProjectStart" xml:space="preserve">
+    <value>Ngày chi tiêu không được trước ngày bắt đầu dự án.</value>
+  </data>
+  <data name="ExpenseDateAfterProjectEnd" xml:space="preserve">
+    <value>Ngày chi tiêu không được sau ngày kết thúc dự án.</value>
+  </data>
+  <data name="StartEndDateRequired" xml:space="preserve">
+    <value>Ngày bắt đầu và ngày kết thúc là bắt buộc.</value>
+  </data>
+  <data name="EndDateBeforeStartDate" xml:space="preserve">
+    <value>Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.</value>
+  </data>
+  <data name="InvalidMethodology" xml:space="preserve">
+    <value>Phương pháp (Methodology) chỉ nhận Agile, Waterfall, Scrum, Kanban hoặc Hybrid.</value>
+  </data>
+  <data name="InvalidExchangeRate" xml:space="preserve">
+    <value>Tỷ giá quy đổi (ExchangeRate) phải lớn hơn 0 và nhỏ hơn hoặc bằng 999999.9999.</value>
+  </data>
+  <data name="ProjectNameExists" xml:space="preserve">
+    <value>Tên dự án đã tồn tại trong Workspace.</value>
+  </data>
+</root>

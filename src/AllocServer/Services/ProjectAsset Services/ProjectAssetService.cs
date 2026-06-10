@@ -211,7 +211,7 @@ namespace AllocServer.Services.ProjectAsset_Services
 
             if (!string.IsNullOrWhiteSpace(query.AssetType) && assetType == null)
             {
-                throw new ArgumentException("AssetType chi nhan File, Image hoac Document.");
+                throw new ArgumentException("InvalidAssetType");
             }
 
             var assetsQuery = _context.ProjectAssets
@@ -323,7 +323,7 @@ namespace AllocServer.Services.ProjectAsset_Services
             var asset = await query.FirstOrDefaultAsync();
             if (asset == null)
             {
-                throw new KeyNotFoundException("Khong tim thay Asset.");
+                throw new KeyNotFoundException("AssetNotFound");
             }
 
             await EnsurePermissionAsync(
@@ -378,7 +378,7 @@ namespace AllocServer.Services.ProjectAsset_Services
 
             if (!hasPermission)
             {
-                throw new UnauthorizedAccessException("Ban khong co quyen thuc hien thao tac nay.");
+                throw new UnauthorizedAccessException("UnauthorizedAssetAccess");
             }
         }
 
@@ -410,17 +410,17 @@ WHERE WorkspaceID = {workspaceId}
         {
             if (file == null)
             {
-                throw new ArgumentException("File la bat buoc.");
+                throw new ArgumentException("FileRequired");
             }
 
             if (file.Length <= 0)
             {
-                throw new ArgumentException("File khong duoc de trong.");
+                throw new ArgumentException("FileEmpty");
             }
 
             if (file.Length > MaxFileSizeBytes)
             {
-                throw new ArgumentException("File khong duoc vuot qua 50MB.");
+                throw new ArgumentException("FileTooLarge");
             }
 
             return file;
@@ -431,7 +431,7 @@ WHERE WorkspaceID = {workspaceId}
             var sanitizedFileName = Path.GetFileName(fileName);
             if (string.IsNullOrWhiteSpace(sanitizedFileName))
             {
-                throw new ArgumentException("Ten file khong hop le.");
+                throw new ArgumentException("InvalidFileName");
             }
 
             foreach (var invalidChar in Path.GetInvalidFileNameChars())
@@ -442,7 +442,7 @@ WHERE WorkspaceID = {workspaceId}
             sanitizedFileName = sanitizedFileName.Trim();
             if (sanitizedFileName.Length > 255)
             {
-                throw new ArgumentException("Ten file khong duoc vuot qua 255 ky tu.");
+                throw new ArgumentException("FileNameTooLong");
             }
 
             return sanitizedFileName;
@@ -465,7 +465,7 @@ WHERE WorkspaceID = {workspaceId}
                 return "File";
             }
 
-            throw new ArgumentException("Dinh dang file khong duoc ho tro.");
+            throw new ArgumentException("UnsupportedFileFormat");
         }
 
         private static string BuildBlobPath(

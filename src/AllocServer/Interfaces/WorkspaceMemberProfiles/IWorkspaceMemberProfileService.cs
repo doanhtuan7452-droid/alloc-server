@@ -10,11 +10,16 @@ namespace AllocServer.Interfaces.WorkspaceMemberProfiles
         
         Task<WorkspaceMemberProfileResponse> UpdateProfileAsync(int workspaceId, int memberId, UpdateMemberProfileRequest request);
         
-        Task<bool> DeleteProfileAsync(int workspaceId, int memberId);
+        Task<bool> DeleteProfileAsync(int workspaceId, int memberId, int? deletedBy = null);
 
         Task RecalculateProfileScoresAsync(int memberId);
+        Task RecalculateProfileScoresBulkAsync(List<int> memberIds);
+
 
         Task RecalculateAttendanceRateForMonthAsync(int memberId, int year, int month);
+        Task RecalculateAttendanceRateForMonthBulkAsync(List<int> memberIds, int year, int month);
+
+
 
         Task<List<ReviewCycleResponse>> GetReviewCyclesAsync(int workspaceId);
         Task<ReviewCycleResponse> CreateReviewCycleAsync(int workspaceId, CreateReviewCycleRequest request, int createdByMemberId);

@@ -48,7 +48,7 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (member == null)
             {
-                throw new KeyNotFoundException("Khong tim thay nhan su hoac nhan su khong active trong Workspace.");
+                throw new KeyNotFoundException("ActiveMemberNotFound");
             }
 
             // Check if profile already exists in any state (active or soft-deleted)
@@ -58,7 +58,7 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (existingProfile != null)
             {
-                throw new InvalidOperationException("Profile da ton tai cho nhan su nay. Vui long cap nhat hoac khoi phuc profile thay vi tao moi.");
+                throw new InvalidOperationException("ProfileAlreadyExists");
             }
 
             var profile = new WorkspaceMemberProfile
@@ -89,7 +89,7 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (profile == null)
             {
-                throw new KeyNotFoundException("Khong tim thay profile cua nhan su.");
+                throw new KeyNotFoundException("MemberProfileNotFound");
             }
 
             profile.ExperienceYears = request.PriorExperienceYears;
@@ -102,7 +102,7 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
             return MapToResponse(profile);
         }
 
-        public async Task<bool> DeleteProfileAsync(int workspaceId, int memberId)
+        public async Task<bool> DeleteProfileAsync(int workspaceId, int memberId, int? deletedBy = null)
         {
             var profile = await _context.WorkspaceMemberProfiles
                 .Include(p => p.WorkspaceMember)
@@ -115,6 +115,8 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
             }
 
             profile.IsDeleted = true;
+            profile.DeletedAt = DateTime.UtcNow;
+            profile.DeletedBy = deletedBy;
             await _context.SaveChangesAsync();
             return true;
         }
@@ -176,20 +178,26 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             profile.TechnicalSkillScore = Math.Min(baseTechnicalScore + technicalBonus, 100.00m);
 
-            // 2. Recalculate Soft Skills from completed cycles
-            var evaluations = await _context.MemberEvaluations
+            // 2. Soft Skills (Optimized query with GroupBy)
+            var softSkillsStats = await _context.MemberEvaluations
                 .AsNoTracking()
-                .Include(e => e.ReviewCycle)
                 .Where(e => e.RevieweeID == memberId 
                          && e.Status == "Submitted" 
                          && e.ReviewCycle.Status == "Completed")
-                .ToListAsync();
+                .GroupBy(e => e.RevieweeID)
+                .Select(g => new 
+                {
+                    CommunicationScore = g.Average(e => e.CommunicationScore),
+                    LeadershipScore = g.Average(e => e.LeadershipScore),
+                    ProblemSolvingScore = g.Average(e => e.ProblemSolvingScore)
+                })
+                .FirstOrDefaultAsync();
 
-            if (evaluations.Count > 0)
+            if (softSkillsStats != null)
             {
-                profile.CommunicationScore = evaluations.Average(e => e.CommunicationScore);
-                profile.LeadershipScore = evaluations.Average(e => e.LeadershipScore);
-                profile.ProblemSolvingScore = evaluations.Average(e => e.ProblemSolvingScore);
+                profile.CommunicationScore = Math.Clamp(softSkillsStats.CommunicationScore, 0m, 100m);
+                profile.LeadershipScore = Math.Clamp(softSkillsStats.LeadershipScore, 0m, 100m);
+                profile.ProblemSolvingScore = Math.Clamp(softSkillsStats.ProblemSolvingScore, 0m, 100m);
             }
 
             // 3. Recalculate Attendance Rate for the current month
@@ -229,7 +237,7 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
             int divisor = standardWorkingDays - approvedLeaveDays;
             if (divisor > 0)
             {
-                attendanceRate = Math.Min((timesheetDays / (decimal)divisor) * 100.00m, 100.00m);
+                attendanceRate = Math.Clamp((timesheetDays / (decimal)divisor) * 100.00m, 0m, 100m);
             }
             profile.AttendanceRate = attendanceRate;
 
@@ -281,12 +289,216 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
             int divisor = standardWorkingDays - approvedLeaveDays;
             if (divisor > 0)
             {
-                attendanceRate = Math.Min((timesheetDays / (decimal)divisor) * 100.00m, 100.00m);
+                attendanceRate = Math.Clamp((timesheetDays / (decimal)divisor) * 100.00m, 0m, 100m);
             }
             profile.AttendanceRate = attendanceRate;
             profile.LastEvaluatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
         }
+        public async Task RecalculateAttendanceRateForMonthBulkAsync(List<int> memberIds, int year, int month)
+        {
+            var profiles = await _context.WorkspaceMemberProfiles
+                .Where(p => memberIds.Contains(p.WorkspaceMemberID))
+                .ToListAsync();
+
+            if (!profiles.Any()) return;
+
+            var startOfMonth = new DateOnly(year, month, 1);
+            var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
+            int standardWorkingDays = GetWorkingDaysInMonth(year, month);
+
+            var timesheets = await _context.Timesheets
+                .AsNoTracking()
+                .Where(t => memberIds.Contains(t.WorkspaceMemberID)
+                         && t.WorkDate >= startOfMonth 
+                         && t.WorkDate <= endOfMonth)
+                .Select(t => new { t.WorkspaceMemberID, t.WorkDate })
+                .Distinct()
+                .ToListAsync();
+
+            var leaveRequests = await _context.LeaveRequests
+                .AsNoTracking()
+                .Where(l => memberIds.Contains(l.WorkspaceMemberID)
+                         && l.Status == "Approved" 
+                         && l.StartDate <= endOfMonth 
+                         && l.EndDate >= startOfMonth)
+                .ToListAsync();
+
+            var timesheetCounts = timesheets.GroupBy(t => t.WorkspaceMemberID)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            var leaveRequestsByMember = leaveRequests.GroupBy(l => l.WorkspaceMemberID)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var profile in profiles)
+            {
+                int timesheetDays = timesheetCounts.GetValueOrDefault(profile.WorkspaceMemberID, 0);
+                int approvedLeaveDays = 0;
+                
+                if (leaveRequestsByMember.TryGetValue(profile.WorkspaceMemberID, out var memberLeaves))
+                {
+                    foreach (var leave in memberLeaves)
+                    {
+                        var overlapStart = leave.StartDate < startOfMonth ? startOfMonth : leave.StartDate;
+                        var overlapEnd = leave.EndDate > endOfMonth ? endOfMonth : leave.EndDate;
+                        approvedLeaveDays += GetWorkingDaysInRange(overlapStart, overlapEnd);
+                    }
+                }
+
+                decimal attendanceRate = 100.00m;
+                int divisor = standardWorkingDays - approvedLeaveDays;
+                if (divisor > 0)
+                {
+                    attendanceRate = Math.Clamp((timesheetDays / (decimal)divisor) * 100.00m, 0m, 100m);
+                }
+                
+                profile.AttendanceRate = attendanceRate;
+                profile.LastEvaluatedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task RecalculateProfileScoresBulkAsync(List<int> memberIds)
+        {
+            var profiles = await _context.WorkspaceMemberProfiles
+                .Where(p => memberIds.Contains(p.WorkspaceMemberID))
+                .ToListAsync();
+
+            if (!profiles.Any()) return;
+
+            var now = DateTime.UtcNow;
+
+            // 1. Technical Score
+            var memberResourceMap = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .Where(m => memberIds.Contains(m.WorkspaceMemberID))
+                .Select(m => new { m.WorkspaceMemberID, m.ResourceID })
+                .ToListAsync();
+
+            var resourceIds = memberResourceMap.Select(m => m.ResourceID).ToList();
+
+            var skills = await _context.ResourceSkills
+                .AsNoTracking()
+                .Where(s => resourceIds.Contains(s.ResourceID))
+                .ToListAsync();
+            
+            var skillsByResource = skills.GroupBy(s => s.ResourceID).ToDictionary(g => g.Key, g => g.ToList());
+
+            var completedTasks = await _context.TaskAssignees
+                .AsNoTracking()
+                .Where(ta => memberIds.Contains(ta.WorkspaceMemberID)
+                          && ta.AssigneeType == "Assignee" 
+                          && ta.Task.Status == "Done"
+                          && !ta.Task.IsDeleted)
+                .Select(ta => new { ta.WorkspaceMemberID, ta.Task.Complexity })
+                .ToListAsync();
+
+            var tasksByMember = completedTasks.GroupBy(t => t.WorkspaceMemberID).ToDictionary(g => g.Key, g => g.ToList());
+
+            // 2. Soft Skills (Optimized query with GroupBy)
+            var softSkillsStats = await _context.MemberEvaluations
+                .AsNoTracking()
+                .Where(e => memberIds.Contains(e.RevieweeID) 
+                         && e.Status == "Submitted" 
+                         && e.ReviewCycle.Status == "Completed")
+                .GroupBy(e => e.RevieweeID)
+                .Select(g => new 
+                {
+                    WorkspaceMemberID = g.Key,
+                    CommunicationScore = g.Average(e => e.CommunicationScore),
+                    LeadershipScore = g.Average(e => e.LeadershipScore),
+                    ProblemSolvingScore = g.Average(e => e.ProblemSolvingScore)
+                })
+                .ToDictionaryAsync(x => x.WorkspaceMemberID);
+
+            // 3. Attendance Rate (current month)
+            var startOfMonth = new DateOnly(now.Year, now.Month, 1);
+            var endOfMonth = startOfMonth.AddMonths(1).AddDays(-1);
+            int standardWorkingDays = GetWorkingDaysInMonth(now.Year, now.Month);
+
+            var timesheets = await _context.Timesheets
+                .AsNoTracking()
+                .Where(t => memberIds.Contains(t.WorkspaceMemberID)
+                         && t.WorkDate >= startOfMonth 
+                         && t.WorkDate <= endOfMonth)
+                .Select(t => new { t.WorkspaceMemberID, t.WorkDate })
+                .Distinct()
+                .ToListAsync();
+
+            var timesheetCounts = timesheets.GroupBy(t => t.WorkspaceMemberID).ToDictionary(g => g.Key, g => g.Count());
+
+            var leaveRequests = await _context.LeaveRequests
+                .AsNoTracking()
+                .Where(l => memberIds.Contains(l.WorkspaceMemberID)
+                         && l.Status == "Approved" 
+                         && l.StartDate <= endOfMonth 
+                         && l.EndDate >= startOfMonth)
+                .ToListAsync();
+            
+            var leaveRequestsByMember = leaveRequests.GroupBy(l => l.WorkspaceMemberID).ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var profile in profiles)
+            {
+                var memberId = profile.WorkspaceMemberID;
+
+                // Technical Score
+                decimal baseTechnicalScore = 0;
+                var resourceId = memberResourceMap.FirstOrDefault(m => m.WorkspaceMemberID == memberId)?.ResourceID;
+                if (resourceId.HasValue && skillsByResource.TryGetValue(resourceId.Value, out var memberSkills) && memberSkills.Count > 0)
+                {
+                    decimal sumOfLevels = memberSkills.Sum(s => s.Level);
+                    baseTechnicalScore = (sumOfLevels / (memberSkills.Count * 5.0m)) * 100.0m;
+                }
+
+                decimal technicalBonus = 0;
+                if (tasksByMember.TryGetValue(memberId, out var memberTasks))
+                {
+                    foreach (var task in memberTasks)
+                    {
+                        if (string.Equals(task.Complexity, "High", StringComparison.OrdinalIgnoreCase))
+                            technicalBonus += 2.0m;
+                        else if (string.Equals(task.Complexity, "Critical", StringComparison.OrdinalIgnoreCase))
+                            technicalBonus += 5.0m;
+                    }
+                }
+                profile.TechnicalSkillScore = Math.Clamp(baseTechnicalScore + technicalBonus, 0m, 100m);
+
+                // Soft Skills
+                if (softSkillsStats.TryGetValue(memberId, out var stats))
+                {
+                    profile.CommunicationScore = Math.Clamp(stats.CommunicationScore, 0m, 100m);
+                    profile.LeadershipScore = Math.Clamp(stats.LeadershipScore, 0m, 100m);
+                    profile.ProblemSolvingScore = Math.Clamp(stats.ProblemSolvingScore, 0m, 100m);
+                }
+
+                // Attendance
+                int timesheetDays = timesheetCounts.GetValueOrDefault(memberId, 0);
+                int approvedLeaveDays = 0;
+                if (leaveRequestsByMember.TryGetValue(memberId, out var memberLeaves))
+                {
+                    foreach (var leave in memberLeaves)
+                    {
+                        var overlapStart = leave.StartDate < startOfMonth ? startOfMonth : leave.StartDate;
+                        var overlapEnd = leave.EndDate > endOfMonth ? endOfMonth : leave.EndDate;
+                        approvedLeaveDays += GetWorkingDaysInRange(overlapStart, overlapEnd);
+                    }
+                }
+
+                decimal attendanceRate = 100.00m;
+                int divisor = standardWorkingDays - approvedLeaveDays;
+                if (divisor > 0)
+                {
+                    attendanceRate = Math.Clamp((timesheetDays / (decimal)divisor) * 100.00m, 0m, 100m);
+                }
+                profile.AttendanceRate = attendanceRate;
+
+                profile.LastEvaluatedAt = now;
+            }
+
+            await _context.SaveChangesAsync();
+        }
+
 
         private static int GetWorkingDaysInMonth(int year, int month)
         {
@@ -350,6 +562,7 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
         public async Task<List<ReviewCycleResponse>> GetReviewCyclesAsync(int workspaceId)
         {
             var cycles = await _context.ReviewCycles
+                .AsNoTracking()
                 .Where(rc => rc.WorkspaceID == workspaceId && !rc.IsDeleted)
                 .ToListAsync();
 
@@ -361,18 +574,18 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
             var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
             if (!workspaceExists)
             {
-                throw new KeyNotFoundException("Khong tim thay Workspace.");
+                throw new KeyNotFoundException("WorkspaceNotFound");
             }
 
             var creatorExists = await _context.WorkspaceMembers.AnyAsync(m => m.WorkspaceMemberID == createdByMemberId && m.WorkspaceID == workspaceId && m.Status == "Active");
             if (!creatorExists)
             {
-                throw new KeyNotFoundException("Nguoi tao khong phai la thanh vien active cua Workspace.");
+                throw new KeyNotFoundException("CreatorNotActiveMember");
             }
 
             if (request.StartDate > request.EndDate)
             {
-                throw new ArgumentException("Ngay bat dau phai nho hon hoac bang ngay ket thuc.");
+                throw new ArgumentException("InvalidDateRange");
             }
 
             var cycle = new ReviewCycle
@@ -399,12 +612,12 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (cycle == null)
             {
-                throw new KeyNotFoundException("Khong tim thay chu ky danh gia.");
+                throw new KeyNotFoundException("ReviewCycleNotFound");
             }
 
             if (cycle.Status != "Draft")
             {
-                throw new InvalidOperationException("Chi co the bat dau chu ky danh gia dang o trang thai Draft.");
+                throw new InvalidOperationException("CannotStartNonDraftCycle");
             }
 
             cycle.Status = "Active";
@@ -420,12 +633,12 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (cycle == null)
             {
-                throw new KeyNotFoundException("Khong tim thay chu ky danh gia.");
+                throw new KeyNotFoundException("ReviewCycleNotFound");
             }
 
             if (cycle.Status != "Active")
             {
-                throw new InvalidOperationException("Chi co the hoan thanh chu ky danh gia dang o trang thai Active.");
+                throw new InvalidOperationException("CannotCompleteNonActiveCycle");
             }
 
             cycle.Status = "Completed";
@@ -444,12 +657,12 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (cycle == null)
             {
-                throw new KeyNotFoundException("Khong tim thay chu ky danh gia.");
+                throw new KeyNotFoundException("ReviewCycleNotFound");
             }
 
             if (cycle.Status != "Active")
             {
-                throw new InvalidOperationException("Chi co the nop danh gia trong chu ky dang hoat dong (Active).");
+                throw new InvalidOperationException("CannotSubmitInNonActiveCycle");
             }
 
             var revieweeExists = await _context.WorkspaceMembers.AnyAsync(m => m.WorkspaceMemberID == request.RevieweeID && m.WorkspaceID == workspaceId && m.Status == "Active");
@@ -457,12 +670,12 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (!revieweeExists || !reviewerExists)
             {
-                throw new KeyNotFoundException("Nhan vien duoc danh gia hoac nguoi danh gia khong hop le trong Workspace.");
+                throw new KeyNotFoundException("InvalidReviewMembers");
             }
 
             if (!new[] { "Self", "Manager", "Peer" }.Contains(request.EvaluationType))
             {
-                throw new ArgumentException("Loai danh gia khong hop le (chi chap nhan Self, Manager, Peer).");
+                throw new ArgumentException("InvalidReviewType");
             }
 
             var evaluation = await _context.MemberEvaluations

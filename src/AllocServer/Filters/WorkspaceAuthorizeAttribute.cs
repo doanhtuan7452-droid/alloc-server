@@ -3,7 +3,10 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
+using Microsoft.Extensions.Caching.Distributed;
 using AllocServer.Data;
+using AllocServer.Models.Cache;
 
 namespace AllocServer.Filters
 {
@@ -45,34 +48,59 @@ namespace AllocServer.Filters
                 return;
             }
 
-            // Check against database
+            // Check against database or cache
             var dbContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
+            var cache = context.HttpContext.RequestServices.GetRequiredService<IDistributedCache>();
 
-            var member = await dbContext.WorkspaceMembers
-                .Include(m => m.WorkspaceRole)
-                .Include(m => m.Resource)
-                .Include(m => m.Workspace)
-                .Where(m => m.WorkspaceID == workspaceId 
-                            && m.Resource.AccountID == accountId 
-                            && m.Status == "Active"
-                            && !m.Workspace.IsDeleted)
-                .FirstOrDefaultAsync();
+            var cacheKey = $"workspace_auth_{accountId}_{workspaceId}";
+            var cachedData = await cache.GetStringAsync(cacheKey);
 
-            if (member == null)
+            WorkspaceAuthCacheModel? authData = null;
+
+            if (!string.IsNullOrEmpty(cachedData))
             {
-                context.Result = new ForbidResult();
-                return;
+                authData = JsonSerializer.Deserialize<WorkspaceAuthCacheModel>(cachedData);
+            }
+
+            if (authData == null)
+            {
+                var member = await dbContext.WorkspaceMembers
+                    .AsNoTracking()
+                    .Where(m => m.WorkspaceID == workspaceId 
+                                && m.Resource.AccountID == accountId 
+                                && m.Status == "Active"
+                                && !m.Workspace.IsDeleted)
+                    .Select(m => new WorkspaceAuthCacheModel
+                    {
+                        WorkspaceRoleID = m.WorkspaceRoleID,
+                        RoleName = m.WorkspaceRole.RoleName,
+                        Permissions = dbContext.RolePermissions
+                            .Where(rp => rp.WorkspaceRoleID == m.WorkspaceRoleID)
+                            .Select(rp => rp.PermissionID)
+                            .ToList()
+                    })
+                    .FirstOrDefaultAsync();
+
+                if (member == null)
+                {
+                    context.Result = new ForbidResult();
+                    return;
+                }
+
+                authData = member;
+                var cacheOptions = new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
+                };
+                await cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(authData), cacheOptions);
             }
 
             if (!string.IsNullOrWhiteSpace(_requiredPermissionId))
             {
-                var hasPermission = await dbContext.RolePermissions
-                    .AsNoTracking()
-                    .AnyAsync(rp => rp.WorkspaceRoleID == member.WorkspaceRoleID 
-                                 && rp.PermissionID == _requiredPermissionId);
+                var hasPermission = authData.Permissions.Contains(_requiredPermissionId);
 
                 var isOwnerFallback = string.Equals(
-                    member.WorkspaceRole?.RoleName,
+                    authData.RoleName,
                     "Owner",
                     StringComparison.OrdinalIgnoreCase);
 

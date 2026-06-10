@@ -73,7 +73,7 @@ namespace AllocServer.Controllers
             }
 
             // Lấy ResourceID tương ứng
-            var resource = await _context.Resources.FirstOrDefaultAsync(r => r.AccountID == accountId);
+            var resource = await _context.Resources.AsNoTracking().FirstOrDefaultAsync(r => r.AccountID == accountId);
             if (resource == null)
             {
                 return BadRequest(new ApiResponse { Message = "Tài khoản chưa có profile (Resource)." });

@@ -102,15 +102,16 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
                 .Select(p => p.WorkspaceMemberID)
                 .ToListAsync(cancellationToken);
 
-            foreach (var memberId in activeMemberIds)
+            if (activeMemberIds.Any())
             {
                 try
                 {
-                    await profileService.RecalculateAttendanceRateForMonthAsync(memberId, year, month);
+                    // Update all active members in bulk
+                    await profileService.RecalculateAttendanceRateForMonthBulkAsync(activeMemberIds, year, month);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to calculate attendance rate for member {MemberId} for {Year}-{Month}", memberId, year, month);
+                    _logger.LogError(ex, "Failed to calculate attendance rate for {Year}-{Month} in bulk.", year, month);
                 }
             }
         }

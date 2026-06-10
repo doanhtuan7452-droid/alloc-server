@@ -31,7 +31,7 @@ namespace AllocServer.Services.Message_Services
 
             if (message.SenderID != currentMemberId)
             {
-                throw new UnauthorizedAccessException("Ban chi co the sua tin nhan cua chinh minh.");
+                throw new UnauthorizedAccessException("UnauthorizedMessageEdit");
             }
 
             message.Content = content;
@@ -52,7 +52,7 @@ namespace AllocServer.Services.Message_Services
 
             if (message.SenderID != currentMemberId)
             {
-                throw new UnauthorizedAccessException("Ban chi co the thu hoi tin nhan cua chinh minh.");
+                throw new UnauthorizedAccessException("UnauthorizedMessageRecall");
             }
 
             message.IsDeleted = true;
@@ -83,7 +83,7 @@ namespace AllocServer.Services.Message_Services
 
             if (message == null)
             {
-                throw new KeyNotFoundException("Khong tim thay tin nhan.");
+                throw new KeyNotFoundException("MessageNotFound");
             }
 
             var currentMemberId = await _context.ConversationMembers
@@ -97,7 +97,7 @@ namespace AllocServer.Services.Message_Services
 
             if (!currentMemberId.HasValue)
             {
-                throw new UnauthorizedAccessException("Ban khong co quyen truy cap tin nhan nay.");
+                throw new UnauthorizedAccessException("UnauthorizedMessageAccess");
             }
 
             return (message, currentMemberId.Value);
@@ -157,7 +157,7 @@ namespace AllocServer.Services.Message_Services
 
             if (normalized == null)
             {
-                throw new ArgumentException("Noi dung tin nhan khong duoc de trong.");
+                throw new ArgumentException("MessageContentRequired");
             }
 
             return normalized;

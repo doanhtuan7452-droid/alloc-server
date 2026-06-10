@@ -102,22 +102,22 @@ namespace AllocServer.Services.Expense_Services
             var category = NormalizeOptionalString(request.Category);
             if (category == null)
             {
-                throw new ArgumentException("Category la bat buoc.");
+                throw new ArgumentException("CategoryRequired");
             }
 
             if (category.Length > 100)
             {
-                throw new ArgumentException("Category toi da 100 ky tu.");
+                throw new ArgumentException("CategoryMaxLength");
             }
 
             if (request.Amount < MinMoneyAmount || request.Amount > MaxMoneyAmount)
             {
-                throw new ArgumentException("Amount phai tu 0.01 den 9999999999999999.99.");
+                throw new ArgumentException("InvalidAmount");
             }
 
             if (request.ExpenseDate == null)
             {
-                throw new ArgumentException("ExpenseDate la bat buoc.");
+                throw new ArgumentException("ExpenseDateRequired");
             }
 
             ValidateExpenseDate(project, request.ExpenseDate.Value);
@@ -141,12 +141,12 @@ namespace AllocServer.Services.Expense_Services
         {
             if (expenseDate < project.StartDate)
             {
-                throw new ArgumentException("ExpenseDate khong duoc truoc ngay bat dau du an.");
+                throw new ArgumentException("ExpenseDateBeforeProjectStart");
             }
 
             if (expenseDate > project.EndDate)
             {
-                throw new ArgumentException("ExpenseDate khong duoc sau ngay ket thuc du an.");
+                throw new ArgumentException("ExpenseDateAfterProjectEnd");
             }
         }
 
@@ -166,17 +166,17 @@ namespace AllocServer.Services.Expense_Services
         {
             if (minAmount is < 0 || maxAmount is < 0)
             {
-                throw new ArgumentException("Amount filter khong duoc am.");
+                throw new ArgumentException("AmountFilterNegative");
             }
 
             if (minAmount > MaxMoneyAmount || maxAmount > MaxMoneyAmount)
             {
-                throw new ArgumentException("Amount filter khong duoc vuot qua 9999999999999999.99.");
+                throw new ArgumentException("AmountFilterExceedsMax");
             }
 
             if (minAmount != null && maxAmount != null && maxAmount < minAmount)
             {
-                throw new ArgumentException("maxAmount phai lon hon hoac bang minAmount.");
+                throw new ArgumentException("InvalidAmountRange");
             }
         }
 

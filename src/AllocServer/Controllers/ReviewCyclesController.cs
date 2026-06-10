@@ -61,6 +61,7 @@ namespace AllocServer.Controllers
             }
 
             var member = await _context.WorkspaceMembers
+                .AsNoTracking()
                 .Include(m => m.Resource)
                 .FirstOrDefaultAsync(m => m.Resource.AccountID == accountId && m.WorkspaceID == workspaceId && m.Status == "Active");
 

@@ -1,5 +1,7 @@
 using AllocServer.Contexts;
 using AllocServer.DTOs.Auth;
+using AllocServer.Resources;
+using Microsoft.Extensions.Localization;
 
 namespace AllocServer.Services.Token_Validation_Handlers
 {
@@ -10,12 +12,19 @@ namespace AllocServer.Services.Token_Validation_Handlers
     /// </summary>
     public class TokenNotRevokedHandler : BaseTokenValidationHandler
     {
+        private readonly IStringLocalizer<AuthResource> _localizer;
+
+        public TokenNotRevokedHandler(IStringLocalizer<AuthResource> localizer)
+        {
+            _localizer = localizer;
+        }
+
         public override async Task<TokenValidationResult> HandleAsync(TokenValidationContext context)
         {
             // context.Session đã được Handler #1 đảm bảo không null
             if (context.Session!.IsRevoked == true)
             {
-                return TokenValidationResult.Fail("Refresh Token đã bị thu hồi. Vui lòng đăng nhập lại.");
+                return TokenValidationResult.Fail(_localizer["TokenRevoked"]);
             }
 
             // PASS → chuyển sang Handler kế tiếp

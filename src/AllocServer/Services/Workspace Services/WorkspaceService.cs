@@ -5,6 +5,7 @@ using AllocServer.Interfaces.Workspaces;
 using AllocServer.Models;
 using AllocServer.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace AllocServer.Services.Workspace_Services
 {
@@ -12,13 +13,16 @@ namespace AllocServer.Services.Workspace_Services
     {
         private readonly ApplicationDbContext _context;
         private readonly IFeatureQuotaService _featureQuotaService;
+        private readonly IDistributedCache _cache;
 
         public WorkspaceService(
             ApplicationDbContext context,
-            IFeatureQuotaService featureQuotaService)
+            IFeatureQuotaService featureQuotaService,
+            IDistributedCache cache)
         {
             _context = context;
             _featureQuotaService = featureQuotaService;
+            _cache = cache;
         }
 
         public async Task<List<WorkspaceListItemResponse>> GetCurrentUserWorkspacesAsync(int accountId)
@@ -238,17 +242,17 @@ namespace AllocServer.Services.Workspace_Services
             var currentUserMembership = await GetActiveOwnerMembershipAsync(accountId, workspaceId);
             if (currentUserMembership == null)
             {
-                throw new UnauthorizedAccessException("Chỉ Owner mới có quyền tạo dự án.");
+                throw new UnauthorizedAccessException("OwnerProjectCreationOnly");
             }
 
             if (request.StartDate == null || request.EndDate == null)
             {
-                throw new ArgumentException("Ngay bat dau va ngay ket thuc la bat buoc.");
+                throw new ArgumentException("StartEndDateRequired");
             }
 
             if (request.EndDate.Value < request.StartDate.Value)
             {
-                throw new ArgumentException("Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu.");
+                throw new ArgumentException("EndDateBeforeStartDate");
             }
 
             var projectName = request.ProjectName.Trim();
@@ -256,18 +260,18 @@ namespace AllocServer.Services.Workspace_Services
             var methodology = NormalizeOptionalString(request.Methodology) ?? "Agile";
             if (!IsAllowedMethodology(methodology))
             {
-                throw new ArgumentException("Methodology chi nhan Agile, Waterfall, Scrum, Kanban hoac Hybrid.");
+                throw new ArgumentException("InvalidMethodology");
             }
 
             var currencyCode = NormalizeOptionalString(request.OriginalCurrencyCode)?.ToUpperInvariant() ?? "USD";
             if (currencyCode.Length > 5)
             {
-                throw new ArgumentException("OriginalCurrencyCode khong duoc vuot qua 5 ky tu.");
+                throw new ArgumentException("CurrencyCodeTooLong");
             }
 
             if (request.ExchangeRateToUSD <= 0 || request.ExchangeRateToUSD > 999999.9999m)
             {
-                throw new ArgumentException("ExchangeRateToUSD phai lon hon 0 va nho hon hoac bang 999999.9999.");
+                throw new ArgumentException("InvalidExchangeRate");
             }
 
             var project = new Project
@@ -296,7 +300,7 @@ namespace AllocServer.Services.Workspace_Services
                 if (ex.InnerException is Microsoft.Data.SqlClient.SqlException sqlEx && 
                     (sqlEx.Number == 2601 || sqlEx.Number == 2627))
                 {
-                    throw new InvalidOperationException("Tên dự án đã tồn tại trong Workspace.");
+                    throw new InvalidOperationException("ProjectNameExists");
                 }
                 throw; // Ném lại lỗi nếu không phải lỗi trùng tên
             }
@@ -350,7 +354,7 @@ namespace AllocServer.Services.Workspace_Services
 
             // BẢO MẬT: Chỉ cho phép Owner cập nhật
             if (currentUserMembership.WorkspaceRole.RoleName != "Owner")
-                throw new UnauthorizedAccessException("Chỉ Owner mới có quyền cập nhật thông tin Workspace.");
+                throw new UnauthorizedAccessException("OwnerWorkspaceUpdateOnly");
 
             // Lấy Workspace để cập nhật
             var workspace = await _context.Workspaces
@@ -384,7 +388,7 @@ namespace AllocServer.Services.Workspace_Services
                 return false;
 
             if (currentUserMembership.WorkspaceRole.RoleName != "Owner")
-                throw new UnauthorizedAccessException("Chi Owner moi co quyen xoa Workspace.");
+                throw new UnauthorizedAccessException("OwnerWorkspaceDeleteOnly");
 
             var deletedAt = DateTime.UtcNow;
 
@@ -444,7 +448,7 @@ namespace AllocServer.Services.Workspace_Services
 
             var email = NormalizeOptionalString(request.Email)?.ToLowerInvariant();
             if (email == null)
-                throw new ArgumentException("Email khong duoc de trong.");
+                throw new ArgumentException("EmailRequired");
 
             var role = await _context.WorkspaceRoles
                 .AsNoTracking()
@@ -460,7 +464,7 @@ namespace AllocServer.Services.Workspace_Services
                 .FirstOrDefaultAsync();
 
             if (role == null)
-                throw new KeyNotFoundException("Khong tim thay vai tro trong Workspace.");
+                throw new KeyNotFoundException("RoleNotFound");
 
             var resource = await _context.Resources
                 .AsNoTracking()
@@ -479,7 +483,7 @@ namespace AllocServer.Services.Workspace_Services
                 .FirstOrDefaultAsync();
 
             if (resource == null)
-                throw new KeyNotFoundException("Khong tim thay tai khoan hoac profile Resource.");
+                throw new KeyNotFoundException("AccountProfileNotFound");
 
             var isExistingMember = await _context.WorkspaceMembers
                 .AsNoTracking()
@@ -488,7 +492,7 @@ namespace AllocServer.Services.Workspace_Services
                     && item.ResourceID == resource.ResourceID);
 
             if (isExistingMember)
-                throw new InvalidOperationException("Nhan su da ton tai trong Workspace.");
+                throw new InvalidOperationException("MemberAlreadyExists");
 
             await EnsureMemberQuotaAvailableAsync(workspaceId);
 
@@ -558,7 +562,7 @@ namespace AllocServer.Services.Workspace_Services
         {
             var targetStatus = NormalizeMemberStatus(request.Status);
             if (targetStatus == null)
-                throw new ArgumentException("Status chi nhan Active hoac Deactivated.");
+                throw new ArgumentException("InvalidMemberStatus");
 
             var currentUserMembership = await GetActiveOwnerMembershipAsync(accountId, workspaceId);
             if (currentUserMembership == null)
@@ -567,10 +571,11 @@ namespace AllocServer.Services.Workspace_Services
             if (targetStatus == "Deactivated"
                 && currentUserMembership.WorkspaceMemberID == targetMemberId)
             {
-                throw new InvalidOperationException("Owner khong the tu vo hieu hoa chinh minh.");
+                throw new InvalidOperationException("OwnerCannotDeactivateSelf");
             }
 
             var targetMember = await _context.WorkspaceMembers
+                .Include(item => item.Resource)
                 .Where(item =>
                     item.WorkspaceMemberID == targetMemberId
                     && item.WorkspaceID == workspaceId)
@@ -589,6 +594,12 @@ namespace AllocServer.Services.Workspace_Services
 
             targetMember.Status = targetStatus;
             await _context.SaveChangesAsync();
+
+            if (targetMember.Resource?.AccountID != null)
+            {
+                var cacheKey = $"workspace_auth_{targetMember.Resource.AccountID}_{workspaceId}";
+                await _cache.RemoveAsync(cacheKey);
+            }
 
             return true;
         }
@@ -611,7 +622,7 @@ namespace AllocServer.Services.Workspace_Services
                 return null;
 
             if (membership.WorkspaceRole.RoleName != "Owner")
-                throw new UnauthorizedAccessException("Chi Owner moi co quyen quan tri nhan su Workspace.");
+                throw new UnauthorizedAccessException("OwnerMemberManagementOnly");
 
             return membership;
         }
@@ -631,7 +642,7 @@ namespace AllocServer.Services.Workspace_Services
 
             if (!hasQuota)
             {
-                throw new QuotaExceededException("Workspace da dat gioi han so luong thanh vien cua goi cuoc.");
+                throw new QuotaExceededException("MemberQuotaExceeded");
             }
         }
 

@@ -90,12 +90,12 @@ namespace AllocServer.Services.Task_Services
 
             if (!string.IsNullOrWhiteSpace(query.Status) && status == null)
             {
-                throw new ArgumentException("Status chi nhan To-do, In Progress, Review hoac Done.");
+                throw new ArgumentException("InvalidTaskStatus");
             }
 
             if (!string.IsNullOrWhiteSpace(query.DurationType) && durationType == null)
             {
-                throw new ArgumentException("DurationType chi nhan Hour, Day hoac StoryPoint.");
+                throw new ArgumentException("InvalidDurationType");
             }
 
             var complexity = NormalizeOptionalComplexity(query.Complexity);
@@ -106,14 +106,14 @@ namespace AllocServer.Services.Task_Services
                 && query.StartDateTo != null
                 && query.StartDateTo < query.StartDateFrom)
             {
-                throw new ArgumentException("startDateTo phai lon hon hoac bang startDateFrom.");
+                throw new ArgumentException("InvalidStartDateRange");
             }
 
             if (query.EndDateFrom != null
                 && query.EndDateTo != null
                 && query.EndDateTo < query.EndDateFrom)
             {
-                throw new ArgumentException("endDateTo phai lon hon hoac bang endDateFrom.");
+                throw new ArgumentException("InvalidEndDateRange");
             }
 
             var tasksQuery = _context.ProjectTasks
@@ -220,25 +220,25 @@ namespace AllocServer.Services.Task_Services
             var taskName = NormalizeOptionalString(request.TaskName);
             if (taskName == null)
             {
-                throw new ArgumentException("Ten task khong duoc de trong.");
+                throw new ArgumentException("TaskNameRequired");
             }
 
             var durationType = NormalizeDurationType(request.DurationType);
             if (durationType == null)
             {
-                throw new ArgumentException("DurationType chi nhan Hour, Day hoac StoryPoint.");
+                throw new ArgumentException("InvalidDurationType");
             }
 
             var status = NormalizeTaskStatus(request.Status, allowDefault: true);
             if (status == null)
             {
-                throw new ArgumentException("Status chi nhan To-do, In Progress, Review hoac Done.");
+                throw new ArgumentException("InvalidTaskStatus");
             }
 
             if (request.EstimatedValue < MinEstimatedValue
                 || request.EstimatedValue > MaxEstimatedValue)
             {
-                throw new ArgumentException("Gia tri uoc tinh phai tu 0.01 den 99999999.99.");
+                throw new ArgumentException("InvalidEstimatedValue");
             }
 
             var complexity = NormalizeOptionalComplexity(request.Complexity) ?? "Medium";
@@ -247,7 +247,7 @@ namespace AllocServer.Services.Task_Services
             var expectedTeamSize = request.ExpectedTeamSize;
             if (expectedTeamSize < 1)
             {
-                throw new ArgumentException("So luong thanh vien du kien (ExpectedTeamSize) phai lon hon hoac bang 1.");
+                throw new ArgumentException("InvalidExpectedTeamSize");
             }
 
             ValidateTaskDates(project, request.StartDate, request.EndDate);
@@ -281,53 +281,53 @@ namespace AllocServer.Services.Task_Services
             var taskName = NormalizeOptionalString(request.TaskName);
             if (taskName == null)
             {
-                throw new ArgumentException("Ten task khong duoc de trong.");
+                throw new ArgumentException("TaskNameRequired");
             }
 
             var durationType = NormalizeDurationType(request.DurationType);
             if (durationType == null)
             {
-                throw new ArgumentException("DurationType chi nhan Hour, Day hoac StoryPoint.");
+                throw new ArgumentException("InvalidDurationType");
             }
 
             var status = NormalizeTaskStatus(request.Status, allowDefault: false);
             if (status == null)
             {
-                throw new ArgumentException("Status chi nhan To-do, In Progress, Review hoac Done.");
+                throw new ArgumentException("InvalidTaskStatus");
             }
 
             if (request.EstimatedValue < MinEstimatedValue
                 || request.EstimatedValue > MaxEstimatedValue)
             {
-                throw new ArgumentException("Gia tri uoc tinh phai tu 0.01 den 99999999.99.");
+                throw new ArgumentException("InvalidEstimatedValue");
             }
 
             var complexity = NormalizeOptionalComplexity(request.Complexity);
             if (complexity == null)
             {
-                throw new ArgumentException("Do phuc tap (Complexity) la bat buoc.");
+                throw new ArgumentException("ComplexityRequired");
             }
 
             var requiredSkillLevel = NormalizeOptionalRequiredSkillLevel(request.RequiredSkillLevel);
             if (requiredSkillLevel == null)
             {
-                throw new ArgumentException("Yeu cau trinh do (RequiredSkillLevel) la bat buoc.");
+                throw new ArgumentException("RequiredSkillLevelRequired");
             }
 
             var priority = NormalizeOptionalPriority(request.Priority);
             if (priority == null)
             {
-                throw new ArgumentException("Muc do uu tien (Priority) la bat buoc.");
+                throw new ArgumentException("PriorityRequired");
             }
 
             if (request.ExpectedTeamSize == null)
             {
-                throw new ArgumentException("So luong thanh vien du kien (ExpectedTeamSize) la bat buoc.");
+                throw new ArgumentException("ExpectedTeamSizeRequired");
             }
             var expectedTeamSize = request.ExpectedTeamSize.Value;
             if (expectedTeamSize < 1)
             {
-                throw new ArgumentException("So luong thanh vien du kien (ExpectedTeamSize) phai lon hon hoac bang 1.");
+                throw new ArgumentException("InvalidExpectedTeamSize");
             }
 
             ValidateTaskDates(project, request.StartDate, request.EndDate);
@@ -363,7 +363,7 @@ namespace AllocServer.Services.Task_Services
             var assigneeType = NormalizeAssigneeType(request.AssigneeType);
             if (assigneeType == null)
             {
-                throw new ArgumentException("AssigneeType chi nhan Assignee, Reviewer hoac Watcher.");
+                throw new ArgumentException("InvalidAssigneeType");
             }
 
             var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
@@ -382,7 +382,7 @@ namespace AllocServer.Services.Task_Services
 
             if (!isValidMember)
             {
-                throw new ArgumentException("Thanh vien khong ton tai, khong active hoac khong thuoc workspace cua task.");
+                throw new ArgumentException("InvalidTaskMember");
             }
 
             var exists = await _context.TaskAssignees
@@ -394,7 +394,7 @@ namespace AllocServer.Services.Task_Services
 
             if (exists)
             {
-                throw new InvalidOperationException("Thanh vien da duoc gan vai tro nay trong task.");
+                throw new InvalidOperationException("MemberRoleAlreadyAssigned");
             }
 
             var taskAssignee = new TaskAssignee
@@ -419,7 +419,7 @@ namespace AllocServer.Services.Task_Services
         {
             if (workspaceMemberId <= 0)
             {
-                throw new ArgumentException("memberId phai lon hon 0.");
+                throw new ArgumentException("InvalidMemberId");
             }
 
             var deletedCount = await _context.TaskAssignees
@@ -438,12 +438,12 @@ namespace AllocServer.Services.Task_Services
             var dependencyType = NormalizeDependencyType(request.DependencyType);
             if (dependencyType == null)
             {
-                throw new ArgumentException("DependencyType chi nhan FS, SS, FF hoac SF.");
+                throw new ArgumentException("InvalidDependencyType");
             }
 
             if (request.PredecessorTaskId == successorTask.TaskID)
             {
-                throw new ArgumentException("Task khong the phu thuoc vao chinh no.");
+                throw new ArgumentException("TaskSelfDependencyNotAllowed");
             }
 
             var predecessorTask = await _context.ProjectTasks
@@ -452,12 +452,12 @@ namespace AllocServer.Services.Task_Services
 
             if (predecessorTask == null)
             {
-                throw new KeyNotFoundException("Khong tim thay predecessor task.");
+                throw new KeyNotFoundException("PredecessorTaskNotFound");
             }
 
             if (predecessorTask.ProjectID != successorTask.ProjectID)
             {
-                throw new ArgumentException("Predecessor task phai thuoc cung project voi successor task.");
+                throw new ArgumentException("PredecessorTaskProjectMismatch");
             }
 
             var exists = await _context.TaskDependencies
@@ -469,7 +469,7 @@ namespace AllocServer.Services.Task_Services
 
             if (exists)
             {
-                throw new InvalidOperationException("Dependency nay da ton tai.");
+                throw new InvalidOperationException("DependencyAlreadyExists");
             }
 
             var createsCycle = await HasDependencyPathAsync(
@@ -478,7 +478,7 @@ namespace AllocServer.Services.Task_Services
 
             if (createsCycle)
             {
-                throw new InvalidOperationException("Khong the tao dependency vi se tao vong lap.");
+                throw new InvalidOperationException("DependencyCycleDetected");
             }
 
             var dependency = new TaskDependency
@@ -607,7 +607,7 @@ namespace AllocServer.Services.Task_Services
         {
             var content = NormalizeOptionalString(request.Content);
             if (content == null)
-                throw new ArgumentException("Noi dung binh luan khong duoc de trong.");
+                throw new ArgumentException("CommentContentRequired");
 
             var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
             var memberId = await GetWorkspaceMemberIdAsync(accountId, taskWorkspaceId);
@@ -619,7 +619,7 @@ namespace AllocServer.Services.Task_Services
                     .FirstOrDefaultAsync(c => c.CommentID == request.ParentCommentId.Value && c.TaskID == task.TaskID);
 
                 if (parent == null)
-                    throw new KeyNotFoundException("Khong tim thay binh luan cha.");
+                    throw new KeyNotFoundException("ParentCommentNotFound");
 
                 finalParentId = parent.ParentCommentID ?? parent.CommentID; // Force 1-level nesting
             }
@@ -660,7 +660,7 @@ namespace AllocServer.Services.Task_Services
         {
             var content = NormalizeOptionalString(request.Content);
             if (content == null)
-                throw new ArgumentException("Noi dung binh luan khong duoc de trong.");
+                throw new ArgumentException("CommentContentRequired");
 
             var comment = await _context.TaskComments
                 .Include(c => c.Task)
@@ -670,7 +670,7 @@ namespace AllocServer.Services.Task_Services
                 .FirstOrDefaultAsync(c => c.CommentID == commentId);
 
             if (comment == null)
-                throw new KeyNotFoundException("Khong tim thay binh luan.");
+                throw new KeyNotFoundException("CommentNotFound");
 
             var workspaceId = comment.Task!.Project!.WorkspaceID;
             var currentMemberId = await GetWorkspaceMemberIdAsync(accountId, workspaceId);
@@ -684,7 +684,7 @@ namespace AllocServer.Services.Task_Services
                 .AnyAsync(rp => rp.WorkspaceRoleID == currentMember!.WorkspaceRoleID && rp.PermissionID == TaskPermissionIds.Update);
 
             if (comment.MemberID != currentMemberId && !isOwner && !hasModeratePermission)
-                throw new UnauthorizedAccessException("Ban khong co quyen sua binh luan nay.");
+                throw new UnauthorizedAccessException("UnauthorizedCommentEdit");
 
             comment.Content = content;
             comment.UpdatedAt = DateTime.UtcNow;
@@ -713,7 +713,7 @@ namespace AllocServer.Services.Task_Services
                 .FirstOrDefaultAsync(c => c.CommentID == commentId);
 
             if (comment == null)
-                throw new KeyNotFoundException("Khong tim thay binh luan.");
+                throw new KeyNotFoundException("CommentNotFound");
 
             var workspaceId = comment.Task!.Project!.WorkspaceID;
             var currentMemberId = await GetWorkspaceMemberIdAsync(accountId, workspaceId);
@@ -727,7 +727,7 @@ namespace AllocServer.Services.Task_Services
                 .AnyAsync(rp => rp.WorkspaceRoleID == currentMember!.WorkspaceRoleID && rp.PermissionID == TaskPermissionIds.Update);
 
             if (comment.MemberID != currentMemberId && !isOwner && !hasModeratePermission)
-                throw new UnauthorizedAccessException("Ban khong co quyen xoa binh luan nay.");
+                throw new UnauthorizedAccessException("UnauthorizedCommentDelete");
 
             var deletedAt = DateTime.UtcNow;
 
@@ -778,7 +778,7 @@ namespace AllocServer.Services.Task_Services
             AttachTaskAssetRequest request)
         {
             if (request.AssetIds == null || !request.AssetIds.Any())
-                throw new ArgumentException("Danh sach AssetIds khong duoc rong.");
+                throw new ArgumentException("AssetIdsRequired");
 
             var uniqueAssetIds = request.AssetIds.Distinct().ToList();
 
@@ -788,7 +788,7 @@ namespace AllocServer.Services.Task_Services
                 .ToListAsync();
 
             if (validAssets.Count != uniqueAssetIds.Count)
-                throw new ArgumentException("Mot hoac nhieu Asset khong hop le (khong ton tai, da bi xoa hoac thuoc project khac).");
+                throw new ArgumentException("InvalidAssets");
 
             var existingLinks = await _context.TaskAssets
                 .AsNoTracking()
@@ -827,7 +827,7 @@ namespace AllocServer.Services.Task_Services
                 .ExecuteDeleteAsync();
 
             if (deletedCount == 0)
-                throw new KeyNotFoundException("Khong tim thay lien ket tai lieu voi task.");
+                throw new KeyNotFoundException("TaskAssetNotFound");
         }
 
         private async Task<int> GetWorkspaceMemberIdAsync(int accountId, int workspaceId)
@@ -838,7 +838,7 @@ namespace AllocServer.Services.Task_Services
                 .FirstOrDefaultAsync(m => m.WorkspaceID == workspaceId && m.Resource.AccountID == accountId && !m.Resource.IsDeleted && m.Status == "Active");
 
             if (member == null)
-                throw new UnauthorizedAccessException("Thanh vien khong thuoc workspace nay.");
+                throw new UnauthorizedAccessException("UnauthorizedWorkspaceMember");
 
             return member.WorkspaceMemberID;
         }
@@ -853,17 +853,17 @@ namespace AllocServer.Services.Task_Services
 
             if (startDate != null && endDate != null && endDate < startDate)
             {
-                throw new ArgumentException("Ngay ket thuc task phai lon hon hoac bang ngay bat dau task.");
+                throw new ArgumentException("TaskEndDateBeforeStartDate");
             }
 
             if (startDate != null && startDate < project.StartDate)
             {
-                throw new ArgumentException("Ngay bat dau task khong duoc nho hon ngay bat dau project.");
+                throw new ArgumentException("TaskStartDateBeforeProjectStart");
             }
 
             if (endDate != null && endDate > project.EndDate)
             {
-                throw new ArgumentException("Ngay ket thuc task khong duoc lon hon ngay ket thuc project.");
+                throw new ArgumentException("TaskEndDateAfterProjectEnd");
             }
         }
 
@@ -904,6 +904,26 @@ namespace AllocServer.Services.Task_Services
             int startTaskId,
             int targetTaskId)
         {
+            var startTask = await _context.ProjectTasks
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.TaskID == startTaskId);
+
+            if (startTask == null) return false;
+
+            // Load all dependencies for the project into RAM
+            var allDependencies = await _context.TaskDependencies
+                .AsNoTracking()
+                .Include(d => d.SuccessorTask)
+                .Where(d => d.PredecessorTask.ProjectID == startTask.ProjectID 
+                         && !d.SuccessorTask.IsDeleted)
+                .ToListAsync();
+
+            // Build adjacency list in memory, filtering out cyclic self-references
+            var graph = allDependencies
+                .Where(d => d.PredecessorTaskID != d.SuccessorTaskID)
+                .GroupBy(d => d.PredecessorTaskID)
+                .ToDictionary(g => g.Key, g => g.Select(d => d.SuccessorTaskID).ToList());
+
             var visitedTaskIds = new HashSet<int>();
             var pendingTaskIds = new Queue<int>();
             pendingTaskIds.Enqueue(startTaskId);
@@ -911,25 +931,23 @@ namespace AllocServer.Services.Task_Services
             while (pendingTaskIds.Count > 0)
             {
                 var currentTaskId = pendingTaskIds.Dequeue();
+                
                 if (!visitedTaskIds.Add(currentTaskId))
                 {
                     continue;
                 }
 
-                var successorTaskIds = await _context.TaskDependencies
-                    .AsNoTracking()
-                    .Where(item => item.PredecessorTaskID == currentTaskId)
-                    .Select(item => item.SuccessorTaskID)
-                    .ToListAsync();
-
-                foreach (var successorTaskId in successorTaskIds)
+                if (graph.TryGetValue(currentTaskId, out var successorTaskIds))
                 {
-                    if (successorTaskId == targetTaskId)
+                    foreach (var successorTaskId in successorTaskIds)
                     {
-                        return true;
-                    }
+                        if (successorTaskId == targetTaskId)
+                        {
+                            return true;
+                        }
 
-                    pendingTaskIds.Enqueue(successorTaskId);
+                        pendingTaskIds.Enqueue(successorTaskId);
+                    }
                 }
             }
 
@@ -975,7 +993,7 @@ namespace AllocServer.Services.Task_Services
 
             if (!AllowedComplexities.Contains(candidate))
             {
-                throw new ArgumentException("Do phuc tap (Complexity) phai la Low, Medium, High hoac Critical.");
+                throw new ArgumentException("InvalidComplexity");
             }
 
             return candidate;
@@ -998,7 +1016,7 @@ namespace AllocServer.Services.Task_Services
 
             if (!AllowedSkillLevels.Contains(candidate))
             {
-                throw new ArgumentException("Yeu cau trinh do (RequiredSkillLevel) phai la Low, Medium, High hoac Expert.");
+                throw new ArgumentException("InvalidSkillLevel");
             }
 
             return candidate;
@@ -1021,7 +1039,7 @@ namespace AllocServer.Services.Task_Services
 
             if (!AllowedPriorities.Contains(candidate))
             {
-                throw new ArgumentException("Muc do uu tien (Priority) phai la Low, Medium, High hoac Critical.");
+                throw new ArgumentException("InvalidPriority");
             }
 
             return candidate;

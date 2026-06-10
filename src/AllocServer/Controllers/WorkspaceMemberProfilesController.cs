@@ -99,7 +99,6 @@ namespace AllocServer.Controllers
             }
         }
 
-        /// <summary>Xoa mem ho so cua mot thanh vien trong Workspace.</summary>
         [HttpDelete]
         [Authorize]
         [RequireActiveAccount]
@@ -108,12 +107,28 @@ namespace AllocServer.Controllers
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> DeleteProfile(int workspaceId, int memberId)
         {
-            var success = await _profileService.DeleteProfileAsync(workspaceId, memberId);
+            TryGetCurrentAccountId(out var accountId);
+            var success = await _profileService.DeleteProfileAsync(workspaceId, memberId, accountId);
             if (!success)
             {
                 return NotFound(new ApiResponse { Message = "Khong tim thay ho so cua nhan su trong Workspace de xoa." });
             }
             return NoContent();
+        }
+
+        private bool TryGetCurrentAccountId(out int accountId)
+        {
+            if (HttpContext.Items.TryGetValue(RequireActiveAccountFilter.CurrentAccountIdItemKey, out var item)
+                && item is int currentAccountId)
+            {
+                accountId = currentAccountId;
+                return true;
+            }
+
+            var accountIdClaim = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                                 ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+            return int.TryParse(accountIdClaim, out accountId);
         }
     }
 }

@@ -37,7 +37,7 @@ namespace AllocServer.Services.Timesheet_Services
 
             if (toDate < fromDate)
             {
-                throw new ArgumentException("toDate phai lon hon hoac bang fromDate.");
+                throw new ArgumentException("InvalidDateRange");
             }
 
             ValidatePositiveId(query.WorkspaceId, "workspaceId");
@@ -139,23 +139,30 @@ namespace AllocServer.Services.Timesheet_Services
 
             if (task == null || task.Project == null)
             {
-                throw new KeyNotFoundException("Khong tim thay Task.");
+                throw new KeyNotFoundException("TaskNotFound");
             }
 
             ValidateWorkDate(task, request.WorkDate);
 
             var membership = await _context.WorkspaceMembers
-                .Include(item => item.Resource)
-                .FirstOrDefaultAsync(item =>
+                .AsNoTracking()
+                .Where(item =>
                     item.WorkspaceID == task.Project.WorkspaceID
                     && item.Resource.AccountID == accountId
                     && item.Status == "Active"
                     && !item.Workspace.IsDeleted
-                    && !item.Resource.IsDeleted);
+                    && !item.Resource.IsDeleted)
+                .Select(item => new 
+                {
+                    item.WorkspaceMemberID,
+                    item.BaseSalaryMonth,
+                    item.OTRatePerHour
+                })
+                .FirstOrDefaultAsync();
 
             if (membership == null)
             {
-                throw new UnauthorizedAccessException("Ban khong phai thanh vien active cua workspace chua Task nay.");
+                throw new UnauthorizedAccessException("UnauthorizedTaskWorkspaceMember");
             }
 
             var loggedHourlyRate = CalculateHourlyRate(membership.BaseSalaryMonth);
@@ -248,12 +255,12 @@ namespace AllocServer.Services.Timesheet_Services
 
                 if (requestedMember == null)
                 {
-                    throw new KeyNotFoundException("Khong tim thay member active.");
+                    throw new KeyNotFoundException("ActiveMemberNotFound");
                 }
 
                 if (workspaceId != null && requestedMember.WorkspaceID != workspaceId.Value)
                 {
-                    throw new ArgumentException("memberId khong thuoc workspaceId da truyen.");
+                    throw new ArgumentException("MemberWorkspaceMismatch");
                 }
 
                 if (requestedMember.AccountID == accountId)
@@ -268,7 +275,7 @@ namespace AllocServer.Services.Timesheet_Services
 
                 if (!canViewAll)
                 {
-                    throw new UnauthorizedAccessException("Ban khong co quyen xem timesheet cua member khac.");
+                    throw new UnauthorizedAccessException("UnauthorizedTimesheetView");
                 }
 
                 return new List<int> { requestedMember.WorkspaceMemberID };
@@ -293,7 +300,7 @@ namespace AllocServer.Services.Timesheet_Services
 
             if (workspaceId != null && memberIds.Count == 0)
             {
-                throw new UnauthorizedAccessException("Ban khong phai thanh vien active cua workspace nay.");
+                throw new UnauthorizedAccessException("UnauthorizedWorkspaceMember");
             }
 
             return memberIds;
@@ -393,17 +400,17 @@ namespace AllocServer.Services.Timesheet_Services
         {
             if (normalHours < 0 || otHours < 0)
             {
-                throw new ArgumentException("So gio lam viec khong duoc am.");
+                throw new ArgumentException("NegativeHoursNotAllowed");
             }
 
             if (normalHours + otHours <= 0)
             {
-                throw new ArgumentException("Tong so gio lam viec phai lon hon 0.");
+                throw new ArgumentException("ZeroHoursNotAllowed");
             }
 
             if (normalHours + otHours > MaxHoursPerDay)
             {
-                throw new ArgumentException("Tong so gio lam viec trong ngay khong duoc vuot qua 24.");
+                throw new ArgumentException("ExceedDailyHoursLimit");
             }
         }
 
@@ -411,12 +418,12 @@ namespace AllocServer.Services.Timesheet_Services
         {
             if (task.StartDate != null && workDate < task.StartDate.Value)
             {
-                throw new ArgumentException("Ngay lam viec khong duoc nho hon ngay bat dau task.");
+                throw new ArgumentException("WorkDateBeforeTaskStart");
             }
 
             if (task.EndDate != null && workDate > task.EndDate.Value)
             {
-                throw new ArgumentException("Ngay lam viec khong duoc lon hon ngay ket thuc task.");
+                throw new ArgumentException("WorkDateAfterTaskEnd");
             }
         }
 

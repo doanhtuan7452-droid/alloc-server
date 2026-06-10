@@ -14,6 +14,7 @@ namespace AllocServer.Extensions
             services.Configure<RateLimitSettings>(configuration.GetSection("RateLimiting"));
             services.Configure<AvatarSettings>(configuration.GetSection("AvatarSettings"));
             services.Configure<EmailSettings>(configuration.GetSection("EmailSettings"));
+            services.Configure<BackgroundJobSettings>(configuration.GetSection("BackgroundJobs"));
 
             return services;
         }

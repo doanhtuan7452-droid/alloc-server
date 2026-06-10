@@ -104,7 +104,13 @@ namespace AllocServer.Data
                 .HasDefaultValue("Agile");
 
             modelBuilder.Entity<Project>()
-                .ToTable(t => t.HasCheckConstraint("CHK_Projects_Methodology", "Methodology IN ('Agile', 'Waterfall', 'Scrum', 'Kanban', 'Hybrid')"));
+                .ToTable(t =>
+                {
+                    t.HasCheckConstraint("CHK_Projects_Methodology", "Methodology IN ('Agile', 'Waterfall', 'Scrum', 'Kanban', 'Hybrid')");
+                    t.HasCheckConstraint("CHK_Projects_ExpectedBudget", "ExpectedBudget >= 0");
+                    t.HasCheckConstraint("CHK_Projects_ExchangeRateToUSD", "ExchangeRateToUSD > 0");
+                    t.HasCheckConstraint("CHK_Projects_TotalRevenue", "TotalRevenue >= 0");
+                });
 
             modelBuilder.Entity<ProjectTask>()
                 .HasQueryFilter(t => !t.IsDeleted);
@@ -141,6 +147,8 @@ namespace AllocServer.Data
                     t.HasCheckConstraint("CHK_Tasks_RequiredSkillLevel", "RequiredSkillLevel IN ('Low', 'Medium', 'High', 'Expert')");
                     t.HasCheckConstraint("CHK_Tasks_Priority", "Priority IN ('Low', 'Medium', 'High', 'Critical')");
                     t.HasCheckConstraint("CHK_Tasks_ExpectedTeamSize", "ExpectedTeamSize >= 1");
+                    t.HasCheckConstraint("CHK_Tasks_EstimatedValue", "EstimatedValue >= 0");
+                    t.HasCheckConstraint("CHK_Tasks_Dates", "EndDate >= StartDate OR EndDate IS NULL");
                 });
 
             modelBuilder.Entity<Expense>()
@@ -306,6 +314,15 @@ namespace AllocServer.Data
                 .IsUnique()
                 .HasFilter("[IsDeleted] = 0");
 
+            modelBuilder.Entity<Timesheet>()
+                .ToTable(t =>
+                {
+                    t.HasCheckConstraint("CHK_Timesheets_NormalHours", "NormalHours >= 0");
+                    t.HasCheckConstraint("CHK_Timesheets_OTHours", "OTHours >= 0");
+                    t.HasCheckConstraint("CHK_Timesheets_LoggedHourlyRate", "LoggedHourlyRate >= 0");
+                    t.HasCheckConstraint("CHK_Timesheets_LoggedOTRate", "LoggedOTRate >= 0");
+                });
+
             modelBuilder.Entity<LeaveRequest>()
                 .HasOne(request => request.WorkspaceMember)
                 .WithMany()
@@ -317,6 +334,9 @@ namespace AllocServer.Data
                 .WithMany()
                 .HasForeignKey(request => request.ApproverID)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<LeaveRequest>()
+                .ToTable(t => t.HasCheckConstraint("CHK_Leave_Dates", "EndDate >= StartDate"));
 
             modelBuilder.Entity<OvertimeRequest>()
                 .HasOne(request => request.WorkspaceMember)
@@ -336,17 +356,26 @@ namespace AllocServer.Data
                 .HasForeignKey(request => request.TaskID)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<OvertimeRequest>()
+                .ToTable(t => t.HasCheckConstraint("CHK_OTRequests_ExpectedHours", "ExpectedHours > 0"));
+
             modelBuilder.Entity<Expense>()
                 .HasOne(expense => expense.Project)
                 .WithMany()
                 .HasForeignKey(expense => expense.ProjectID)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<Expense>()
+                .ToTable(t => t.HasCheckConstraint("CHK_Expenses_Amount", "Amount >= 0"));
+
             modelBuilder.Entity<Revenue>()
                 .HasOne(revenue => revenue.Project)
                 .WithMany()
                 .HasForeignKey(revenue => revenue.ProjectID)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Revenue>()
+                .ToTable(t => t.HasCheckConstraint("CHK_Revenues_Amount", "Amount >= 0"));
 
             modelBuilder.Entity<ProjectAsset>()
                 .HasOne(asset => asset.Workspace)
@@ -424,6 +453,9 @@ namespace AllocServer.Data
                 .HasForeignKey(mitigation => mitigation.AssignedMemberID)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            modelBuilder.Entity<RiskMitigation>()
+                .ToTable(t => t.HasCheckConstraint("CHK_RiskMitigations_MitigationCost", "MitigationCost >= 0"));
+
             // RiskLifecycle — FK relationships
             modelBuilder.Entity<RiskLifecycle>()
                 .HasOne(lifecycle => lifecycle.Risk)
@@ -457,6 +489,9 @@ namespace AllocServer.Data
                     taskDependency.DependencyType
                 })
                 .IsUnique();
+
+            modelBuilder.Entity<TaskDependency>()
+                .ToTable(t => t.HasCheckConstraint("CHK_No_Self_Dependency", "PredecessorTaskID <> SuccessorTaskID"));
 
             // TaskComment - FK relationships
             modelBuilder.Entity<TaskComment>()
@@ -595,6 +630,15 @@ namespace AllocServer.Data
                 .HasForeignKey(t => t.AccountID)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // WorkspaceMember Configuration
+            modelBuilder.Entity<WorkspaceMember>()
+                .ToTable(t =>
+                {
+                    t.HasCheckConstraint("CHK_WorkspaceMembers_BaseSalaryMonth", "BaseSalaryMonth >= 0");
+                    t.HasCheckConstraint("CHK_WorkspaceMembers_OTRatePerHour", "OTRatePerHour >= 0");
+                    t.HasCheckConstraint("CHK_WorkspaceMembers_Status", "Status IN ('Active', 'Deactivated', 'Pending_Invite')");
+                });
+
             // WorkspaceMemberProfile Configuration
             modelBuilder.Entity<WorkspaceMemberProfile>()
                 .HasOne(p => p.WorkspaceMember)
@@ -654,6 +698,13 @@ namespace AllocServer.Data
                 {
                     t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_EducationLevel", "EducationLevel IN ('High School', 'Diploma', 'Bachelor', 'Master', 'PhD')");
                     t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_PerformanceRating", "PerformanceRating IN ('Poor', 'Average', 'Excellent', 'Outstanding')");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_ExperienceYears", "ExperienceYears >= 0");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_TechnicalSkillScore", "TechnicalSkillScore BETWEEN 0 AND 100");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_CommunicationScore", "CommunicationScore BETWEEN 0 AND 100");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_LeadershipScore", "LeadershipScore BETWEEN 0 AND 100");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_ProblemSolvingScore", "ProblemSolvingScore BETWEEN 0 AND 100");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_AttendanceRate", "AttendanceRate BETWEEN 0 AND 100");
+                    t.HasCheckConstraint("CHK_WorkspaceMemberProfiles_ConflictRate", "ConflictRate BETWEEN 0 AND 100");
                 });
 
             // ResourceSkill Configuration
@@ -693,7 +744,11 @@ namespace AllocServer.Data
                 .HasDefaultValue("Draft");
 
             modelBuilder.Entity<ReviewCycle>()
-                .ToTable(t => t.HasCheckConstraint("CHK_ReviewCycles_Status", "Status IN ('Draft', 'Active', 'Completed', 'Cancelled')"));
+                .ToTable(t =>
+                {
+                    t.HasCheckConstraint("CHK_ReviewCycles_Status", "Status IN ('Draft', 'Active', 'Completed', 'Cancelled')");
+                    t.HasCheckConstraint("CHK_Review_Dates", "EndDate >= StartDate");
+                });
 
             // MemberEvaluation Configuration
             modelBuilder.Entity<MemberEvaluation>()
@@ -747,6 +802,9 @@ namespace AllocServer.Data
                 {
                     t.HasCheckConstraint("CHK_MemberEvaluations_EvaluationType", "EvaluationType IN ('Self', 'Manager', 'Peer')");
                     t.HasCheckConstraint("CHK_MemberEvaluations_Status", "Status IN ('Pending', 'Submitted')");
+                    t.HasCheckConstraint("CHK_MemberEvaluations_CommunicationScore", "CommunicationScore BETWEEN 0 AND 100");
+                    t.HasCheckConstraint("CHK_MemberEvaluations_LeadershipScore", "LeadershipScore BETWEEN 0 AND 100");
+                    t.HasCheckConstraint("CHK_MemberEvaluations_ProblemSolvingScore", "ProblemSolvingScore BETWEEN 0 AND 100");
                 });
         }
     }

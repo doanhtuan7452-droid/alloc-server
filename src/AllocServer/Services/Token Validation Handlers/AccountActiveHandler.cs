@@ -1,6 +1,8 @@
 using AllocServer.Contexts;
 using AllocServer.DTOs.Auth;
 using AllocServer.Interfaces.Auth;
+using AllocServer.Resources;
+using Microsoft.Extensions.Localization;
 
 namespace AllocServer.Services.Token_Validation_Handlers
 {
@@ -12,10 +14,12 @@ namespace AllocServer.Services.Token_Validation_Handlers
     public class AccountActiveHandler : BaseTokenValidationHandler
     {
         private readonly IAccountService _accountService;
+        private readonly IStringLocalizer<AuthResource> _localizer;
 
-        public AccountActiveHandler(IAccountService accountService)
+        public AccountActiveHandler(IAccountService accountService, IStringLocalizer<AuthResource> localizer)
         {
             _accountService = accountService;
+            _localizer = localizer;
         }
 
         public override async Task<TokenValidationResult> HandleAsync(TokenValidationContext context)
@@ -25,12 +29,14 @@ namespace AllocServer.Services.Token_Validation_Handlers
 
             if (account == null || account.IsDeleted)
             {
-                return TokenValidationResult.Fail("Tài khoản không tồn tại hoặc đã bị xóa.");
+                return TokenValidationResult.Fail(_localizer["AccountNotFoundOrDeleted"]);
             }
 
             if (account.AccountStatus != "Active")
             {
-                return TokenValidationResult.Fail($"Tài khoản đang bị {account.AccountStatus.ToLower()}. Vui lòng liên hệ hỗ trợ.");
+                // To keep it simple, we use a single key for all non-active statuses or format it.
+                // In a real scenario, we might want to pass the status as an argument to the localizer.
+                return TokenValidationResult.Fail(_localizer["AccountNotActive", account.AccountStatus.ToLower()]);
             }
 
             // Gán Account vào context — đây là dữ liệu cuối cùng cần thiết để sinh token mới

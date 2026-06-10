@@ -32,17 +32,17 @@ namespace AllocServer.Services.Request_Services
 
             if (request.StartDate == null)
             {
-                throw new ArgumentException("startDate la bat buoc.");
+                throw new ArgumentException("StartDateRequired");
             }
 
             if (request.EndDate == null)
             {
-                throw new ArgumentException("endDate la bat buoc.");
+                throw new ArgumentException("EndDateRequired");
             }
 
             if (request.EndDate.Value < request.StartDate.Value)
             {
-                throw new ArgumentException("endDate phai lon hon hoac bang startDate.");
+                throw new ArgumentException("InvalidDateRange");
             }
 
             var membership = await GetActiveMembershipAsync(accountId, workspaceId);
@@ -73,14 +73,14 @@ namespace AllocServer.Services.Request_Services
 
             if (request.RequestedDate == null)
             {
-                throw new ArgumentException("requestedDate la bat buoc.");
+                throw new ArgumentException("RequestedDateRequired");
             }
 
             ValidateExpectedHours(request.ExpectedHours);
 
             if (request.TaskId is <= 0)
             {
-                throw new ArgumentException("taskId phai lon hon 0.");
+                throw new ArgumentException("InvalidTaskId");
             }
 
             var membership = await GetActiveMembershipAsync(accountId, workspaceId);
@@ -141,7 +141,7 @@ namespace AllocServer.Services.Request_Services
 
             if (leaveRequest == null || leaveRequest.WorkspaceMember == null)
             {
-                throw new KeyNotFoundException("Khong tim thay LeaveRequest.");
+                throw new KeyNotFoundException("LeaveRequestNotFound");
             }
 
             EnsurePending(leaveRequest.Status);
@@ -181,7 +181,7 @@ namespace AllocServer.Services.Request_Services
 
             if (otRequest == null || otRequest.WorkspaceMember == null)
             {
-                throw new KeyNotFoundException("Khong tim thay OTRequest.");
+                throw new KeyNotFoundException("OTRequestNotFound");
             }
 
             EnsurePending(otRequest.Status);
@@ -231,7 +231,7 @@ namespace AllocServer.Services.Request_Services
 
             if (membership == null)
             {
-                throw new UnauthorizedAccessException("Ban khong phai thanh vien active cua workspace nay.");
+                throw new UnauthorizedAccessException("UnauthorizedWorkspaceMember");
             }
 
             return membership;
@@ -256,7 +256,7 @@ namespace AllocServer.Services.Request_Services
 
             if (!hasApprovePermission)
             {
-                throw new UnauthorizedAccessException("Ban khong co quyen duyet don trong workspace nay.");
+                throw new UnauthorizedAccessException("UnauthorizedRequestApproval");
             }
 
             return membership;
@@ -280,17 +280,17 @@ namespace AllocServer.Services.Request_Services
 
             if (task == null)
             {
-                throw new KeyNotFoundException("Khong tim thay Task trong workspace nay.");
+                throw new KeyNotFoundException("TaskNotFoundInWorkspace");
             }
 
             if (task.StartDate != null && requestedDate < task.StartDate.Value)
             {
-                throw new ArgumentException("requestedDate khong duoc nho hon ngay bat dau task.");
+                throw new ArgumentException("RequestedDateBeforeTaskStart");
             }
 
             if (task.EndDate != null && requestedDate > task.EndDate.Value)
             {
-                throw new ArgumentException("requestedDate khong duoc lon hon ngay ket thuc task.");
+                throw new ArgumentException("RequestedDateAfterTaskEnd");
             }
         }
 
@@ -359,7 +359,7 @@ namespace AllocServer.Services.Request_Services
         {
             if (string.IsNullOrWhiteSpace(requestType))
             {
-                throw new ArgumentException("requestType la bat buoc.");
+                throw new ArgumentException("RequestTypeRequired");
             }
 
             return requestType.Trim().ToLowerInvariant() switch
@@ -374,7 +374,7 @@ namespace AllocServer.Services.Request_Services
         {
             if (string.IsNullOrWhiteSpace(status))
             {
-                throw new ArgumentException("status la bat buoc.");
+                throw new ArgumentException("StatusRequired");
             }
 
             if (string.Equals(status.Trim(), ApprovedStatus, StringComparison.OrdinalIgnoreCase))
@@ -387,14 +387,14 @@ namespace AllocServer.Services.Request_Services
                 return RejectedStatus;
             }
 
-            throw new ArgumentException("status chi nhan Approved hoac Rejected.");
+            throw new ArgumentException("InvalidRequestStatus");
         }
 
         private static void EnsurePending(string status)
         {
             if (!string.Equals(status, PendingStatus, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException("Don nay da duoc xu ly.");
+                throw new InvalidOperationException("RequestAlreadyProcessed");
             }
         }
 
@@ -402,7 +402,7 @@ namespace AllocServer.Services.Request_Services
         {
             if (expectedHours <= 0 || expectedHours > MaxHoursPerDay)
             {
-                throw new ArgumentException("expectedHours phai tu 0.01 den 24.");
+                throw new ArgumentException("InvalidExpectedHours");
             }
         }
 

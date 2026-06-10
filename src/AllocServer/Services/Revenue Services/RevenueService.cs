@@ -41,12 +41,12 @@ namespace AllocServer.Services.Revenue_Services
 
             if (!string.IsNullOrWhiteSpace(query.Type) && revenueType == null)
             {
-                throw new ArgumentException("Type chi nhan Fixed Price, Time & Material hoac Milestone.");
+                throw new ArgumentException("InvalidRevenueType");
             }
 
             if (!string.IsNullOrWhiteSpace(query.Status) && status == null)
             {
-                throw new ArgumentException("Status chi nhan Pending hoac Received.");
+                throw new ArgumentException("InvalidRevenueStatus");
             }
 
             ValidateDateRange(query.ExpectedFromDate, query.ExpectedToDate);
@@ -124,7 +124,7 @@ namespace AllocServer.Services.Revenue_Services
                 && expectedToDate != null
                 && expectedToDate < expectedFromDate)
             {
-                throw new ArgumentException("expectedToDate phai lon hon hoac bang expectedFromDate.");
+                throw new ArgumentException("InvalidExpectedDateRange");
             }
         }
 
@@ -132,17 +132,17 @@ namespace AllocServer.Services.Revenue_Services
         {
             if (minAmount is < 0 || maxAmount is < 0)
             {
-                throw new ArgumentException("Amount filter khong duoc am.");
+                throw new ArgumentException("AmountFilterNegative");
             }
 
             if (minAmount > MaxMoneyAmount || maxAmount > MaxMoneyAmount)
             {
-                throw new ArgumentException("Amount filter khong duoc vuot qua 9999999999999999.99.");
+                throw new ArgumentException("AmountFilterExceedsMax");
             }
 
             if (minAmount != null && maxAmount != null && maxAmount < minAmount)
             {
-                throw new ArgumentException("maxAmount phai lon hon hoac bang minAmount.");
+                throw new ArgumentException("InvalidAmountRange");
             }
         }
 

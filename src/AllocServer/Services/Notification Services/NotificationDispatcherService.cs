@@ -44,14 +44,14 @@ namespace AllocServer.Services.Notification_Services
                     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                     var pushService = scope.ServiceProvider.GetRequiredService<IFirebasePushService>();
 
-                    var member = await dbContext.WorkspaceMembers
-                        .Include(m => m.Resource)
+                    var accountId = await dbContext.WorkspaceMembers
                         .AsNoTracking()
-                        .FirstOrDefaultAsync(m => m.WorkspaceMemberID == message.RecipientID, stoppingToken);
+                        .Where(m => m.WorkspaceMemberID == message.RecipientID)
+                        .Select(m => m.Resource != null ? (int?)m.Resource.AccountID : null)
+                        .FirstOrDefaultAsync(stoppingToken);
 
-                    if (member?.Resource?.AccountID != null)
+                    if (accountId.HasValue)
                     {
-                        var accountId = member.Resource.AccountID;
 
                         var activeTokens = await dbContext.NotificationDeviceTokens
                             .Where(t => t.AccountID == accountId && t.IsActive)

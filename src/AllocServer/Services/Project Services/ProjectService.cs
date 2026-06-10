@@ -37,33 +37,33 @@ namespace AllocServer.Services.Project_Services
             var projectName = NormalizeOptionalString(request.ProjectName);
             if (projectName == null)
             {
-                throw new ArgumentException("Ten du an khong duoc de trong.");
+                throw new ArgumentException("ProjectNameRequired");
             }
 
             if (request.StartDate == null || request.EndDate == null)
             {
-                throw new ArgumentException("Ngay bat dau va ngay ket thuc la bat buoc.");
+                throw new ArgumentException("StartEndDateRequired");
             }
 
             if (request.EndDate.Value < request.StartDate.Value)
             {
-                throw new ArgumentException("Ngay ket thuc phai lon hon hoac bang ngay bat dau.");
+                throw new ArgumentException("EndDateBeforeStartDate");
             }
 
             if (request.ExpectedBudget == null || request.ExpectedBudget < 0)
             {
-                throw new ArgumentException("Ngan sach khong hop le.");
+                throw new ArgumentException("InvalidBudget");
             }
 
             if (request.TotalRevenue == null || request.TotalRevenue < 0)
             {
-                throw new ArgumentException("Doanh thu khong hop le.");
+                throw new ArgumentException("InvalidRevenue");
             }
 
             var status = NormalizeProjectStatus(request.Status);
             if (status == null)
             {
-                throw new ArgumentException("Status chi nhan Planning, In Progress, Completed, On Hold hoac Cancelled.");
+                throw new ArgumentException("InvalidProjectStatus");
             }
 
             var methodology = project.Methodology;
@@ -72,7 +72,7 @@ namespace AllocServer.Services.Project_Services
                 var reqMethodology = NormalizeOptionalString(request.Methodology);
                 if (reqMethodology == null || !IsAllowedMethodology(reqMethodology))
                 {
-                    throw new ArgumentException("Methodology chi nhan Agile, Waterfall, Scrum, Kanban hoac Hybrid.");
+                    throw new ArgumentException("InvalidMethodology");
                 }
                 methodology = reqMethodology;
             }
@@ -83,7 +83,7 @@ namespace AllocServer.Services.Project_Services
                 var reqCurrencyCode = NormalizeOptionalString(request.OriginalCurrencyCode)?.ToUpperInvariant();
                 if (string.IsNullOrEmpty(reqCurrencyCode) || reqCurrencyCode.Length > 5)
                 {
-                    throw new ArgumentException("OriginalCurrencyCode khong duoc de trong va khong duoc vuot qua 5 ky tu.");
+                    throw new ArgumentException("InvalidOriginalCurrencyCode");
                 }
                 currencyCode = reqCurrencyCode;
             }
@@ -93,7 +93,7 @@ namespace AllocServer.Services.Project_Services
             {
                 if (request.ExchangeRateToUSD.Value <= 0 || request.ExchangeRateToUSD.Value > 999999.9999m)
                 {
-                    throw new ArgumentException("ExchangeRateToUSD phai lon hon 0 va nho hon hoac bang 999999.9999.");
+                    throw new ArgumentException("InvalidExchangeRate");
                 }
                 exchangeRate = request.ExchangeRateToUSD.Value;
             }
@@ -107,7 +107,7 @@ namespace AllocServer.Services.Project_Services
 
             if (isDuplicateName)
             {
-                throw new InvalidOperationException("Ten du an da ton tai trong Workspace.");
+                throw new InvalidOperationException("ProjectNameExists");
             }
 
             project.ProjectName = projectName;
@@ -130,7 +130,7 @@ namespace AllocServer.Services.Project_Services
                 if (ex.InnerException is Microsoft.Data.SqlClient.SqlException sqlEx
                     && (sqlEx.Number == 2601 || sqlEx.Number == 2627))
                 {
-                    throw new InvalidOperationException("Ten du an da ton tai trong Workspace.");
+                    throw new InvalidOperationException("ProjectNameExists");
                 }
 
                 throw;

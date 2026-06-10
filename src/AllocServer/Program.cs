@@ -2,6 +2,7 @@ using AllocServer.Extensions;
 using AllocServer.Middleware;
 using AllocServer.Hubs;
 using Microsoft.AspNetCore.HttpOverrides;
+using AllocServer.Exceptions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +22,11 @@ builder.Services.AddAuthAndSecurity(builder.Configuration);
 // 5. API presentation & documentation (Controllers, SignalR, Swagger)
 builder.Services.AddApiDocumentation(builder.Configuration);
 
+// 6. Localization & Exception Handling
+builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 var app = builder.Build();
 
 // ============================================================
@@ -36,6 +42,9 @@ var forwardedOptions = new ForwardedHeadersOptions
 forwardedOptions.KnownNetworks.Clear();
 forwardedOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedOptions);
+
+// Exception Handler (Phải đặt sớm trong pipeline)
+app.UseExceptionHandler();
 
 // Safe idempotent startup database permissions seeding
 await app.SeedDatabasePermissionsAsync();

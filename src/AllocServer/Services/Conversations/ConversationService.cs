@@ -576,16 +576,19 @@ namespace AllocServer.Services.Conversations
                 conversation.DeletedBy = accountId;
                 conversation.ConversationKey = null;
 
-                var messages = await _context.Messages.Where(m => m.ConversationID == conversationId && !m.IsDeleted).ToListAsync();
-                foreach (var msg in messages)
-                {
-                    msg.IsDeleted = true;
-                    msg.DeletedAt = DateTime.UtcNow;
-                    msg.DeletedBy = accountId;
-                }
+                await _context.Messages
+                    .Where(m => m.ConversationID == conversationId && !m.IsDeleted)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(m => m.IsDeleted, true)
+                        .SetProperty(m => m.DeletedAt, DateTime.UtcNow)
+                        .SetProperty(m => m.DeletedBy, accountId));
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
+
+                await _hubContext.Clients
+                    .Group(ConversationHub.BuildConversationGroup(conversationId))
+                    .SendAsync("ConversationCleared", new { ConversationId = conversationId, DeletedBy = accountId });
             }
             catch
             {

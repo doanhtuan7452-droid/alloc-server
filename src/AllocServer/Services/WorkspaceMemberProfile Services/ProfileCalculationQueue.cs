@@ -1,4 +1,5 @@
 using AllocServer.Interfaces.WorkspaceMemberProfiles;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -23,9 +24,18 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
             await _queue.Writer.WriteAsync(memberId, cancellationToken);
         }
 
-        public async ValueTask<int> DequeueAsync(CancellationToken cancellationToken)
+        public async ValueTask<List<int>> DequeueBatchAsync(int maxBatchSize, CancellationToken cancellationToken)
         {
-            return await _queue.Reader.ReadAsync(cancellationToken);
+            var batch = new List<int>();
+
+            await _queue.Reader.WaitToReadAsync(cancellationToken);
+
+            while (batch.Count < maxBatchSize && _queue.Reader.TryRead(out var item))
+            {
+                batch.Add(item);
+            }
+
+            return batch;
         }
     }
 }

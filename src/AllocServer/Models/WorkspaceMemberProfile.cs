@@ -40,5 +40,7 @@ namespace AllocServer.Models
         public DateTime LastEvaluatedAt { get; set; } = DateTime.UtcNow;
 
         public bool IsDeleted { get; set; } = false;
+        public DateTime? DeletedAt { get; set; }
+        public int? DeletedBy { get; set; }
     }
 }

@@ -163,12 +163,12 @@ namespace AllocServer.Services.Risk_Services
             var riskName = NormalizeOptionalString(request.RiskName);
             if (riskName == null)
             {
-                throw new ArgumentException("RiskName la bat buoc.");
+                throw new ArgumentException("RiskNameRequired");
             }
 
             if (riskName.Length > 255)
             {
-                throw new ArgumentException("RiskName toi da 255 ky tu.");
+                throw new ArgumentException("RiskNameMaxLength");
             }
 
             // Validate Category
@@ -186,12 +186,12 @@ namespace AllocServer.Services.Risk_Services
             // Validate Probability & Impact
             if (request.Probability < 1 || request.Probability > 5)
             {
-                throw new ArgumentException("Probability phai tu 1 den 5.");
+                throw new ArgumentException("InvalidRiskProbability");
             }
 
             if (request.Impact < 1 || request.Impact > 5)
             {
-                throw new ArgumentException("Impact phai tu 1 den 5.");
+                throw new ArgumentException("InvalidRiskImpact");
             }
 
             // Validate Status
@@ -205,7 +205,7 @@ namespace AllocServer.Services.Risk_Services
             // Validate EstimatedFinancialImpact
             if (request.EstimatedFinancialImpact < 0 || request.EstimatedFinancialImpact > MaxMoneyAmount)
             {
-                throw new ArgumentException("EstimatedFinancialImpact phai tu 0 den 9999999999999999.99.");
+                throw new ArgumentException("InvalidEstimatedFinancialImpact");
             }
 
             // Validate TaskID — must belong to same project and not soft-deleted
@@ -272,17 +272,17 @@ namespace AllocServer.Services.Risk_Services
         {
             if (minScore is < 1 || minScore is > 25)
             {
-                throw new ArgumentException("minScore phai tu 1 den 25.");
+                throw new ArgumentException("InvalidMinScore");
             }
 
             if (maxScore is < 1 || maxScore is > 25)
             {
-                throw new ArgumentException("maxScore phai tu 1 den 25.");
+                throw new ArgumentException("InvalidMaxScore");
             }
 
             if (minScore != null && maxScore != null && maxScore < minScore)
             {
-                throw new ArgumentException("maxScore phai lon hon hoac bang minScore.");
+                throw new ArgumentException("InvalidScoreRange");
             }
         }
 
@@ -365,7 +365,7 @@ namespace AllocServer.Services.Risk_Services
             var actionPlan = NormalizeOptionalString(request.ActionPlan);
             if (actionPlan == null)
             {
-                throw new ArgumentException("ActionPlan la bat buoc.");
+                throw new ArgumentException("ActionPlanRequired");
             }
 
             // Validate MitigationCost

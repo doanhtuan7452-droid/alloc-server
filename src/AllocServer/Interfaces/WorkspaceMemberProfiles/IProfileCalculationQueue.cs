@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -7,6 +8,6 @@ namespace AllocServer.Interfaces.WorkspaceMemberProfiles
     {
         ValueTask QueueProfileCalculationAsync(int memberId, CancellationToken cancellationToken = default);
         
-        ValueTask<int> DequeueAsync(CancellationToken cancellationToken);
+        ValueTask<List<int>> DequeueBatchAsync(int maxBatchSize, CancellationToken cancellationToken);
     }
 }
