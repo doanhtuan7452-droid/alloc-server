@@ -75,8 +75,11 @@ namespace AllocServer.Data
             modelBuilder.Entity<Resource>()
                 .HasQueryFilter(r => !r.IsDeleted);
 
-            modelBuilder.Entity<Workspace>()
-                .HasQueryFilter(w => !w.IsDeleted);
+            modelBuilder.Entity<Workspace>(entity =>
+            {
+                entity.HasQueryFilter(w => !w.IsDeleted);
+                entity.ToTable(tb => tb.HasTrigger("trg_AutoAssignFreePlan"));
+            });
 
             modelBuilder.Entity<WorkspaceRole>()
                 .HasQueryFilter(wr => !wr.IsDeleted);
