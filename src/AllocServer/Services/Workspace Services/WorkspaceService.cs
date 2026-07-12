@@ -240,7 +240,7 @@ namespace AllocServer.Services.Workspace_Services
                     ExchangeRateToUSD = item.Project.ExchangeRateToUSD,
                     Methodology = item.Project.Methodology,
                     CreatedAt = item.Project.CreatedAt,
-                    Progress = item.Stat != null ? item.Stat.WeightedProgress : 0.0
+                    Progress = (double?)item.Stat.WeightedProgress ?? 0.0
                 })
                 .ToListAsync();
         }
