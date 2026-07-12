@@ -390,4 +390,16 @@
   <data name="ProjectNameExists" xml:space="preserve">
     <value>Tên dự án đã tồn tại trong Workspace.</value>
   </data>
+  <data name="ConversationNotFound" xml:space="preserve">
+    <value>Không tìm thấy cuộc hội thoại AI tương ứng.</value>
+  </data>
+  <data name="ConversationAccessDenied" xml:space="preserve">
+    <value>Bạn không có quyền truy cập cuộc hội thoại AI này.</value>
+  </data>
+  <data name="InvalidRequest" xml:space="preserve">
+    <value>Yêu cầu không hợp lệ.</value>
+  </data>
+  <data name="DownstreamServiceError" xml:space="preserve">
+    <value>Lỗi kết nối dịch vụ AI downstream. Vui lòng thử lại sau.</value>
+  </data>
 </root>

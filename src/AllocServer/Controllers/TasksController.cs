@@ -95,6 +95,26 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay danh sach thanh vien (assignees) gop theo member trong task.</summary>
+        [HttpGet("{taskId}/assignees")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.View)]
+        [ProducesResponseType(typeof(List<TaskAssigneeDetailResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetTaskAssignees(int taskId)
+        {
+            if (!TryGetCurrentTask(out var task))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
+            }
+
+            var response = await _taskService.GetTaskAssigneesAsync(task.TaskID);
+            return Ok(response);
+        }
+
         /// <summary>Gan member vao task theo vai tro.</summary>
         [HttpPost("{taskId}/assignees")]
         [Authorize]

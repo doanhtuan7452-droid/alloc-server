@@ -474,6 +474,258 @@ namespace AllocServer.Controllers
             return Ok(roles);
         }
 
+        /// <summary>Tao vai tro tuy chinh moi trong Workspace.</summary>
+        [HttpPost("{workspaceId}/roles")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(WorkspaceRoleSummaryResponse), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> CreateWorkspaceRole(
+            int workspaceId,
+            [FromBody] CreateWorkspaceRoleRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var role = await _workspaceService.CreateWorkspaceRoleAsync(accountId, workspaceId, request);
+                return StatusCode(201, role);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Chinh sua ten vai tro tuy chinh.</summary>
+        [HttpPut("{workspaceId}/roles/{roleId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> UpdateWorkspaceRole(
+            int workspaceId,
+            int roleId,
+            [FromBody] UpdateWorkspaceRoleRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var success = await _workspaceService.UpdateWorkspaceRoleAsync(accountId, workspaceId, roleId, request);
+                if (!success)
+                {
+                    return NotFound(new ApiResponse { Message = "Khong tim thay vai tro." });
+                }
+                return Ok(new ApiResponse { Message = "Cap nhat vai tro thanh cong." });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Xoa vai tro tuy chinh (soft delete).</summary>
+        [HttpDelete("{workspaceId}/roles/{roleId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeleteWorkspaceRole(
+            int workspaceId,
+            int roleId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var success = await _workspaceService.DeleteWorkspaceRoleAsync(accountId, workspaceId, roleId);
+                if (!success)
+                {
+                    return NotFound(new ApiResponse { Message = "Khong tim thay vai tro." });
+                }
+                return Ok(new ApiResponse { Message = "Xoa vai tro thanh cong." });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Cap nhat danh sach quyen han cho vai tro tuy chinh.</summary>
+        [HttpPut("{workspaceId}/roles/{roleId}/permissions")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateRolePermissions(
+            int workspaceId,
+            int roleId,
+            [FromBody] UpdateRolePermissionsRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var success = await _workspaceService.UpdateRolePermissionsAsync(accountId, workspaceId, roleId, request);
+                if (!success)
+                {
+                    return NotFound(new ApiResponse { Message = "Khong tim thay vai tro." });
+                }
+                return Ok(new ApiResponse { Message = "Cap nhat quyen han thanh cong." });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay chi tiet vai tro tuy chinh.</summary>
+        [HttpGet("{workspaceId}/roles/{roleId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(WorkspaceRoleDetailResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetWorkspaceRoleDetails(
+            int workspaceId,
+            int roleId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var role = await _workspaceService.GetWorkspaceRoleDetailsAsync(accountId, workspaceId, roleId);
+                if (role == null)
+                {
+                    return NotFound(new ApiResponse { Message = "Khong tim thay vai tro." });
+                }
+                return Ok(role);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay danh sach quyen han he thong co san trong Workspace.</summary>
+        [HttpGet("{workspaceId}/permissions")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(List<WorkspacePermissionResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> GetAvailablePermissions(int workspaceId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var permissions = await _workspaceService.GetAvailablePermissionsAsync(accountId, workspaceId);
+                return Ok(permissions);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
+
         private bool TryGetCurrentAccountId(out int accountId)
         {
             if (HttpContext.Items.TryGetValue(RequireActiveAccountFilter.CurrentAccountIdItemKey, out var item)

@@ -46,6 +46,10 @@ namespace AllocServer.Data
 
         // WorkspaceMemberProfile Entities
         public DbSet<WorkspaceMemberProfile> WorkspaceMemberProfiles { get; set; }
+        public DbSet<ProjectRiskFeature> ProjectRiskFeatures { get; set; }
+        public DbSet<MemberCurrentWorkload> MemberCurrentWorkloads { get; set; }
+        public DbSet<MemberHistoricalPerformance> MemberHistoricalPerformances { get; set; }
+        public DbSet<ProjectProgressStat> ProjectProgressStats { get; set; }
         public DbSet<Skill> Skills { get; set; }
         public DbSet<ResourceSkill> ResourceSkills { get; set; }
         public DbSet<ReviewCycle> ReviewCycles { get; set; }
@@ -217,6 +221,28 @@ namespace AllocServer.Data
             // WorkspaceCurrentLimit maps to a View
             modelBuilder.Entity<WorkspaceCurrentLimit>()
                 .ToView("vw_WorkspaceCurrentLimits")
+                .HasNoKey();
+
+            // ProjectRiskFeature maps to a View
+            modelBuilder.Entity<ProjectRiskFeature>(entity =>
+            {
+                entity.ToView("vw_ProjectRiskFeatures");
+                entity.HasKey(e => e.ProjectID);
+            });
+
+            // MemberCurrentWorkload maps to a View
+            modelBuilder.Entity<MemberCurrentWorkload>()
+                .ToView("vw_MemberCurrentWorkload")
+                .HasNoKey();
+
+            // MemberHistoricalPerformance maps to a View
+            modelBuilder.Entity<MemberHistoricalPerformance>()
+                .ToView("vw_MemberHistoricalPerformance")
+                .HasNoKey();
+
+            // ProjectProgressStat maps to a View
+            modelBuilder.Entity<ProjectProgressStat>()
+                .ToView("vw_ProjectProgressStats")
                 .HasNoKey();
 
             modelBuilder.Entity<RolePermission>()

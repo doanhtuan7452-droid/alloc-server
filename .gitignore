@@ -493,5 +493,6 @@ SQLPRMS3.sql
 
 # Docs file
 docs/
+docs_api_python/
 
 scratch-verify/

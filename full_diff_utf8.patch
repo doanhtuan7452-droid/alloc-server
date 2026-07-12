@@ -1,0 +1,4110 @@
+﻿diff --git a/.gitignore b/.gitignore
+index 2bc4456..b0af88d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -493,5 +493,6 @@ SQLPRMS3.sql
+ 
+ # Docs file
+ docs/
++docs_api_python/
+ 
+ scratch-verify/
+\ No newline at end of file
+diff --git a/src/AllocServer/AllocServer.csproj b/src/AllocServer/AllocServer.csproj
+index e374131..8aa5a53 100644
+--- a/src/AllocServer/AllocServer.csproj
++++ b/src/AllocServer/AllocServer.csproj
+@@ -12,16 +12,16 @@
+   </PropertyGroup>
+ 
+   <ItemGroup>
+-	  <PackageReference Include="Azure.Storage.Blobs" Version="12.28.0" />
+-	  <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+-	  <PackageReference Include="FirebaseAdmin" Version="3.5.0" />
+-	  <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+-	  <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
+-	  <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
+-      <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />    
+-	  <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
+-	  <PackageReference Include="Azure.Communication.Email" Version="1.0.1" />
+-
++    <PackageReference Include="Azure.Storage.Blobs" Version="12.28.0" />
++    <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
++    <PackageReference Include="FirebaseAdmin" Version="3.5.0" />
++    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
++    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
++    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
++    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />    
++    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
++    <PackageReference Include="Azure.Communication.Email" Version="1.0.1" />
++    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="8.0.0" />
+   </ItemGroup>
+ 
+ </Project>
+diff --git a/src/AllocServer/Controllers/AIChatController.cs b/src/AllocServer/Controllers/AIChatController.cs
+new file mode 100644
+index 0000000..075ec85
+--- /dev/null
++++ b/src/AllocServer/Controllers/AIChatController.cs
+@@ -0,0 +1,188 @@
++using AllocServer.DTOs.AIChat;
++using AllocServer.DTOs.Common;
++using AllocServer.Exceptions;
++using AllocServer.Filters;
++using AllocServer.Interfaces.AI;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Mvc;
++using System;
++using System.Collections.Generic;
++using System.ComponentModel.DataAnnotations;
++using System.IdentityModel.Tokens.Jwt;
++using System.Security.Claims;
++using System.Threading.Tasks;
++
++namespace AllocServer.Controllers
++{
++    [ApiController]
++    [Route("api/v1/ai/chat")]
++    public class AIChatController : ControllerBase
++    {
++        private readonly IPythonChatService _pythonChatService;
++
++        public AIChatController(IPythonChatService pythonChatService)
++        {
++            _pythonChatService = pythonChatService;
++        }
++
++        /// <summary>Lay danh sach cuoc hoi thoai voi AI cua nguoi dung.</summary>
++        [HttpGet("conversations")]
++        [Authorize]
++        [RequireActiveAccount]
++        [ProducesResponseType(typeof(PythonConversationsResponse), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
++        public async Task<IActionResult> GetConversations(
++            [FromQuery, Range(1, 100)] int limit = 20,
++            [FromQuery, Range(0, int.MaxValue)] int skip = 0)
++        {
++            if (!ModelState.IsValid)
++                return BadRequest(ModelState);
++
++            if (!TryGetCurrentAccountId(out var accountId))
++            {
++                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
++            }
++
++            try
++            {
++                var response = await _pythonChatService.GetConversationsAsync(accountId.ToString(), limit, skip);
++                return Ok(response);
++            }
++            catch (ArgumentException ex)
++            {
++                return BadRequest(new ApiResponse { Message = ex.Message });
++            }
++            catch (KeyNotFoundException ex)
++            {
++                return NotFound(new ApiResponse { Message = ex.Message });
++            }
++            catch (UnauthorizedAccessException ex)
++            {
++                return StatusCode(403, new ApiResponse { Message = ex.Message });
++            }
++            catch (Exception ex)
++            {
++                // Unhandled downstream errors will bubble up or can be handled as 500
++                return StatusCode(500, new ApiResponse { Message = ex.Message });
++            }
++        }
++
++        /// <summary>Lay danh sach tin nhan trong cuoc hoi thoai AI.</summary>
++        [HttpGet("conversations/{conversationId}/messages")]
++        [Authorize]
++        [RequireActiveAccount]
++        [ProducesResponseType(typeof(PythonMessagesResponse), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> GetMessages(
++            string conversationId,
++            [FromQuery, Range(1, 100)] int limit = 50,
++            [FromQuery, Range(0, int.MaxValue)] int skip = 0,
++            [FromQuery, RegularExpression("^(asc|desc)$")] string order = "asc")
++        {
++            if (!ModelState.IsValid)
++                return BadRequest(ModelState);
++
++            if (string.IsNullOrWhiteSpace(conversationId))
++            {
++                return BadRequest(new ApiResponse { Message = "Conversation ID khong hop le." });
++            }
++
++            if (!TryGetCurrentAccountId(out var accountId))
++            {
++                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
++            }
++
++            try
++            {
++                var response = await _pythonChatService.GetMessagesAsync(conversationId, accountId.ToString(), limit, skip, order);
++                return Ok(response);
++            }
++            catch (ArgumentException ex)
++            {
++                return BadRequest(new ApiResponse { Message = ex.Message });
++            }
++            catch (KeyNotFoundException ex)
++            {
++                return NotFound(new ApiResponse { Message = ex.Message });
++            }
++            catch (UnauthorizedAccessException ex)
++            {
++                return StatusCode(403, new ApiResponse { Message = ex.Message });
++            }
++            catch (Exception ex)
++            {
++                return StatusCode(500, new ApiResponse { Message = ex.Message });
++            }
++        }
++
++        /// <summary>Gui tin nhan chat voi AI va luu tru lich su trong MongoDB.</summary>
++        [HttpPost]
++        [Authorize]
++        [RequireActiveAccount]
++        [ProducesResponseType(typeof(PythonChatQueryResponse), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
++        public async Task<IActionResult> Chat([FromBody] PythonChatQueryRequest request, System.Threading.CancellationToken cancellationToken)
++        {
++            if (!ModelState.IsValid)
++                return BadRequest(ModelState);
++
++            if (!TryGetCurrentAccountId(out var accountId))
++            {
++                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
++            }
++
++            try
++            {
++                var response = await _pythonChatService.ChatAsync(accountId.ToString(), request, cancellationToken);
++                return Ok(response);
++            }
++            catch (QuotaExceededException ex)
++            {
++                return StatusCode(403, new ApiResponse
++                {
++                    Message = ex.Message,
++                    ErrorCode = ex.ErrorCode
++                });
++            }
++            catch (ArgumentException ex)
++            {
++                return BadRequest(new ApiResponse { Message = ex.Message });
++            }
++            catch (KeyNotFoundException ex)
++            {
++                return NotFound(new ApiResponse { Message = ex.Message });
++            }
++            catch (UnauthorizedAccessException ex)
++            {
++                return StatusCode(403, new ApiResponse { Message = ex.Message });
++            }
++            catch (Exception ex)
++            {
++                return StatusCode(500, new ApiResponse { Message = ex.Message });
++            }
++        }
++
++        private bool TryGetCurrentAccountId(out int accountId)
++        {
++            if (HttpContext.Items.TryGetValue(RequireActiveAccountFilter.CurrentAccountIdItemKey, out var item)
++                && item is int currentAccountId)
++            {
++                accountId = currentAccountId;
++                return true;
++            }
++
++            var accountIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
++                                 ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
++
++            return int.TryParse(accountIdClaim, out accountId);
++        }
++    }
++}
+diff --git a/src/AllocServer/Controllers/AIChatToolsController.cs b/src/AllocServer/Controllers/AIChatToolsController.cs
+new file mode 100644
+index 0000000..8cc8c6c
+--- /dev/null
++++ b/src/AllocServer/Controllers/AIChatToolsController.cs
+@@ -0,0 +1,88 @@
++using System.Collections.Generic;
++using System.Threading.Tasks;
++using AllocServer.Filters;
++using AllocServer.Interfaces.AI;
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Mvc;
++
++namespace AllocServer.Controllers
++{
++    [ApiController]
++    [Route("api/v1/internal-tools")]
++    [RequireInternalToken]
++    public class AIChatToolsController : ControllerBase
++    {
++        private readonly IAIToolDispatcher _dispatcher;
++
++        public AIChatToolsController(IAIToolDispatcher dispatcher)
++        {
++            _dispatcher = dispatcher;
++        }
++
++        [HttpPost("create-project")]
++        [ProducesResponseType(StatusCodes.Status200OK)]
++        [ProducesResponseType(StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> CreateProject([FromBody] Dictionary<string, object> arguments)
++        {
++            Request.Headers.TryGetValue("X-Idempotency-Key", out var idempotencyKey);
++            
++            var result = await _dispatcher.DispatchAsync("create_project", arguments, idempotencyKey.ToString());
++            
++            return StatusCode(result.StatusCode, result);
++        }
++
++        [HttpPost("create-task")]
++        [ProducesResponseType(StatusCodes.Status200OK)]
++        [ProducesResponseType(StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> CreateTask([FromBody] Dictionary<string, object> arguments)
++        {
++            Request.Headers.TryGetValue("X-Idempotency-Key", out var idempotencyKey);
++            
++            var result = await _dispatcher.DispatchAsync("create_task", arguments, idempotencyKey.ToString());
++            
++            return StatusCode(result.StatusCode, result);
++        }
++
++        [HttpPost("get-project-info")]
++        [ProducesResponseType(StatusCodes.Status200OK)]
++        [ProducesResponseType(StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> GetProjectInfo([FromBody] Dictionary<string, object> arguments)
++        {
++            var result = await _dispatcher.DispatchAsync("get_project_info", arguments, null);
++            return StatusCode(result.StatusCode, result);
++        }
++
++        [HttpPost("get-employee-list")]
++        [ProducesResponseType(StatusCodes.Status200OK)]
++        [ProducesResponseType(StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> GetEmployeeList([FromBody] Dictionary<string, object> arguments)
++        {
++            var result = await _dispatcher.DispatchAsync("get_employee_list", arguments, null);
++            return StatusCode(result.StatusCode, result);
++        }
++
++        [HttpPost("get-employee-detail")]
++        [ProducesResponseType(StatusCodes.Status200OK)]
++        [ProducesResponseType(StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> GetEmployeeDetail([FromBody] Dictionary<string, object> arguments)
++        {
++            var result = await _dispatcher.DispatchAsync("get_employee_detail", arguments, null);
++            return StatusCode(result.StatusCode, result);
++        }
++    }
++}
+diff --git a/src/AllocServer/Controllers/AIController.cs b/src/AllocServer/Controllers/AIController.cs
+deleted file mode 100644
+index d433be0..0000000
+--- a/src/AllocServer/Controllers/AIController.cs
++++ /dev/null
+@@ -1,85 +0,0 @@
+-using AllocServer.DTOs.AIInsights;
+-using AllocServer.DTOs.Common;
+-using AllocServer.Exceptions;
+-using AllocServer.Filters;
+-using AllocServer.Interfaces.AI;
+-using Microsoft.AspNetCore.Authorization;
+-using Microsoft.AspNetCore.Mvc;
+-using System.IdentityModel.Tokens.Jwt;
+-using System.Security.Claims;
+-
+-namespace AllocServer.Controllers
+-{
+-    [ApiController]
+-    [Route("api/v1/ai")]
+-    public class AIController : ControllerBase
+-    {
+-        private readonly IAIAnalysisService _aiAnalysisService;
+-
+-        public AIController(IAIAnalysisService aiAnalysisService)
+-        {
+-            _aiAnalysisService = aiAnalysisService;
+-        }
+-
+-        /// <summary>Goi AI phan tich rui ro du an.</summary>
+-        [HttpPost("ask")]
+-        [Authorize]
+-        [RequireActiveAccount]
+-        [ProducesResponseType(typeof(AIAskResponse), StatusCodes.Status200OK)]
+-        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+-        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+-        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+-        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+-        public async Task<IActionResult> Ask([FromBody] AIAskRequest request)
+-        {
+-            if (!ModelState.IsValid)
+-                return BadRequest(ModelState);
+-
+-            if (!TryGetCurrentAccountId(out var accountId))
+-            {
+-                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+-            }
+-
+-            try
+-            {
+-                var response = await _aiAnalysisService.AnalyzeAsync(accountId, request);
+-                return Ok(response);
+-            }
+-            catch (QuotaExceededException ex)
+-            {
+-                return StatusCode(403, new ApiResponse
+-                {
+-                    Message = ex.Message,
+-                    ErrorCode = ex.ErrorCode
+-                });
+-            }
+-            catch (KeyNotFoundException ex)
+-            {
+-                return NotFound(new ApiResponse { Message = ex.Message });
+-            }
+-            catch (UnauthorizedAccessException ex)
+-            {
+-                return StatusCode(403, new ApiResponse { Message = ex.Message });
+-            }
+-            catch (ArgumentException ex)
+-            {
+-                return BadRequest(new ApiResponse { Message = ex.Message });
+-            }
+-        }
+-
+-        private bool TryGetCurrentAccountId(out int accountId)
+-        {
+-            if (HttpContext.Items.TryGetValue(RequireActiveAccountFilter.CurrentAccountIdItemKey, out var item)
+-                && item is int currentAccountId)
+-            {
+-                accountId = currentAccountId;
+-                return true;
+-            }
+-
+-            var accountIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+-                                 ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+-
+-            return int.TryParse(accountIdClaim, out accountId);
+-        }
+-    }
+-}
+diff --git a/src/AllocServer/Controllers/ProjectAIInsightsController.cs b/src/AllocServer/Controllers/ProjectAIInsightsController.cs
+new file mode 100644
+index 0000000..4f4de3d
+--- /dev/null
++++ b/src/AllocServer/Controllers/ProjectAIInsightsController.cs
+@@ -0,0 +1,154 @@
++using AllocServer.DTOs.AIInsights;
++using AllocServer.DTOs.Common;
++using AllocServer.Exceptions;
++using AllocServer.Filters;
++using AllocServer.Interfaces.AI;
++using AllocServer.Constants.Permissions;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Mvc;
++using System.IdentityModel.Tokens.Jwt;
++using System.Security.Claims;
++using System.Threading.Tasks;
++
++namespace AllocServer.Controllers
++{
++    [ApiController]
++    [Route("api/v1/projects/{projectId}/ai-insights")]
++    public class ProjectAIInsightsController : ControllerBase
++    {
++        private readonly IAIAnalysisService _aiAnalysisService;
++
++        public ProjectAIInsightsController(IAIAnalysisService aiAnalysisService)
++        {
++            _aiAnalysisService = aiAnalysisService;
++        }
++
++        /// <summary>Gß╗¡i y├¬u cß║ºu AI ─æ├ính gi├í mß╗⌐c ─æß╗Ö rß╗ºi ro cß╗ºa dß╗▒ ├ín.</summary>
++        [HttpPost("risk-assessment")]
++        [Authorize]
++        [RequireActiveAccount]
++        [ProjectAuthorize(AIPermissionIds.Ask)]
++        [ProducesResponseType(typeof(AIAskResponse), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> AssessProjectRisk(int projectId)
++        {
++            if (!TryGetCurrentAccountId(out var accountId))
++            {
++                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
++            }
++
++            try
++            {
++                var askRequest = new AIAskRequest
++                {
++                    ProjectId = projectId,
++                    AnalysisType = "Risk Warning",
++                    TargetEntityId = null,
++                    Prompt = null
++                };
++                
++                var response = await _aiAnalysisService.AnalyzeAsync(accountId, askRequest);
++                return Ok(response);
++            }
++            catch (QuotaExceededException ex)
++            {
++                return StatusCode(403, new ApiResponse
++                {
++                    Message = ex.Message,
++                    ErrorCode = ex.ErrorCode
++                });
++            }
++            catch (KeyNotFoundException ex)
++            {
++                return NotFound(new ApiResponse { Message = ex.Message });
++            }
++            catch (UnauthorizedAccessException ex)
++            {
++                return StatusCode(403, new ApiResponse { Message = ex.Message });
++            }
++            catch (ArgumentException ex)
++            {
++                return BadRequest(new ApiResponse { Message = ex.Message });
++            }
++        }
++
++        /// <summary>Gß╗¡i y├¬u cß║ºu AI ─æ├ính gi├í ─æß╗Ö ph├╣ hß╗úp v├á rß╗ºi ro cß╗ºa nh├ón sß╗▒ cho task trong dß╗▒ ├ín.</summary>
++        [HttpPost("allocation-assessment")]
++        [Authorize]
++        [RequireActiveAccount]
++        [ProjectAuthorize(AIPermissionIds.Ask)]
++        [ProducesResponseType(typeof(AIAskResponse), StatusCodes.Status200OK)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
++        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
++        public async Task<IActionResult> AssessPersonnelAllocation(
++            int projectId,
++            [FromQuery] int taskId,
++            [FromQuery] int? workspaceMemberId = null)
++        {
++            if (taskId <= 0)
++            {
++                return BadRequest(new ApiResponse { Message = "taskId phai lon hon 0." });
++            }
++
++            if (!TryGetCurrentAccountId(out var accountId))
++            {
++                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
++            }
++
++            try
++            {
++                var askRequest = new AIAskRequest
++                {
++                    ProjectId = projectId,
++                    AnalysisType = "Resource Suggestion",
++                    TargetEntityId = taskId,
++                    Prompt = workspaceMemberId?.ToString()
++                };
++                
++                var response = await _aiAnalysisService.AnalyzeAsync(accountId, askRequest);
++                return Ok(response);
++            }
++            catch (QuotaExceededException ex)
++            {
++                return StatusCode(403, new ApiResponse
++                {
++                    Message = ex.Message,
++                    ErrorCode = ex.ErrorCode
++                });
++            }
++            catch (KeyNotFoundException ex)
++            {
++                return NotFound(new ApiResponse { Message = ex.Message });
++            }
++            catch (UnauthorizedAccessException ex)
++            {
++                return StatusCode(403, new ApiResponse { Message = ex.Message });
++            }
++            catch (ArgumentException ex)
++            {
++                return BadRequest(new ApiResponse { Message = ex.Message });
++            }
++        }
++
++        private bool TryGetCurrentAccountId(out int accountId)
++        {
++            if (HttpContext.Items.TryGetValue(RequireActiveAccountFilter.CurrentAccountIdItemKey, out var item)
++                && item is int currentAccountId)
++            {
++                accountId = currentAccountId;
++                return true;
++            }
++
++            var accountIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
++                                 ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
++
++            return int.TryParse(accountIdClaim, out accountId);
++        }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/CreateProjectToolPayload.cs b/src/AllocServer/DTOs/AIChat/CreateProjectToolPayload.cs
+new file mode 100644
+index 0000000..9376937
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/CreateProjectToolPayload.cs
+@@ -0,0 +1,35 @@
++using System;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class CreateProjectToolPayload
++    {
++        [JsonPropertyName("workspaceId")]
++        public int WorkspaceId { get; set; }
++
++        [JsonPropertyName("userId")]
++        public int UserId { get; set; }
++
++        [JsonPropertyName("projectName")]
++        public string ProjectName { get; set; } = string.Empty;
++
++        [JsonPropertyName("expectedBudget")]
++        public decimal ExpectedBudget { get; set; }
++
++        [JsonPropertyName("startDate")]
++        public DateOnly? StartDate { get; set; }
++
++        [JsonPropertyName("endDate")]
++        public DateOnly? EndDate { get; set; }
++
++        [JsonPropertyName("originalCurrencyCode")]
++        public string OriginalCurrencyCode { get; set; } = "USD";
++
++        [JsonPropertyName("exchangeRateToUSD")]
++        public decimal ExchangeRateToUSD { get; set; } = 1.0m;
++
++        [JsonPropertyName("methodology")]
++        public string Methodology { get; set; } = "Agile";
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/CreateTaskToolPayload.cs b/src/AllocServer/DTOs/AIChat/CreateTaskToolPayload.cs
+new file mode 100644
+index 0000000..a035786
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/CreateTaskToolPayload.cs
+@@ -0,0 +1,44 @@
++using System;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class CreateTaskToolPayload
++    {
++        [JsonPropertyName("projectId")]
++        public int ProjectId { get; set; }
++
++        [JsonPropertyName("userId")]
++        public int UserId { get; set; }
++
++        [JsonPropertyName("taskName")]
++        public string TaskName { get; set; } = string.Empty;
++
++        [JsonPropertyName("estimatedValue")]
++        public decimal EstimatedValue { get; set; }
++
++        [JsonPropertyName("durationType")]
++        public string DurationType { get; set; } = string.Empty;
++
++        [JsonPropertyName("startDate")]
++        public DateOnly? StartDate { get; set; }
++
++        [JsonPropertyName("endDate")]
++        public DateOnly? EndDate { get; set; }
++
++        [JsonPropertyName("status")]
++        public string Status { get; set; } = "To-do";
++
++        [JsonPropertyName("complexity")]
++        public string Complexity { get; set; } = "Medium";
++
++        [JsonPropertyName("requiredSkillLevel")]
++        public string RequiredSkillLevel { get; set; } = "Medium";
++
++        [JsonPropertyName("priority")]
++        public string Priority { get; set; } = "Medium";
++
++        [JsonPropertyName("expectedTeamSize")]
++        public int ExpectedTeamSize { get; set; } = 1;
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/GetEmployeeDetailToolPayload.cs b/src/AllocServer/DTOs/AIChat/GetEmployeeDetailToolPayload.cs
+new file mode 100644
+index 0000000..84f111c
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/GetEmployeeDetailToolPayload.cs
+@@ -0,0 +1,19 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class GetEmployeeDetailToolPayload
++    {
++        [JsonPropertyName("workspaceMemberId")]
++        public int? WorkspaceMemberId { get; set; }
++
++        [JsonPropertyName("employeeCode")]
++        public string? EmployeeCode { get; set; }
++
++        [JsonPropertyName("workspaceId")]
++        public int WorkspaceId { get; set; }
++
++        [JsonPropertyName("userId")]
++        public int UserId { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/GetEmployeeListToolPayload.cs b/src/AllocServer/DTOs/AIChat/GetEmployeeListToolPayload.cs
+new file mode 100644
+index 0000000..f86e6ff
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/GetEmployeeListToolPayload.cs
+@@ -0,0 +1,16 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class GetEmployeeListToolPayload
++    {
++        [JsonPropertyName("workspaceId")]
++        public int? WorkspaceId { get; set; }
++
++        [JsonPropertyName("projectId")]
++        public int? ProjectId { get; set; }
++
++        [JsonPropertyName("userId")]
++        public int UserId { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/GetProjectInfoToolPayload.cs b/src/AllocServer/DTOs/AIChat/GetProjectInfoToolPayload.cs
+new file mode 100644
+index 0000000..29f67fd
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/GetProjectInfoToolPayload.cs
+@@ -0,0 +1,13 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class GetProjectInfoToolPayload
++    {
++        [JsonPropertyName("projectId")]
++        public int ProjectId { get; set; }
++
++        [JsonPropertyName("userId")]
++        public int UserId { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonAttachmentDto.cs b/src/AllocServer/DTOs/AIChat/PythonAttachmentDto.cs
+new file mode 100644
+index 0000000..4068536
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonAttachmentDto.cs
+@@ -0,0 +1,25 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonAttachmentDto
++    {
++        [JsonPropertyName("file_id")]
++        public string FileId { get; set; } = string.Empty;
++
++        [JsonPropertyName("file_name")]
++        public string FileName { get; set; } = string.Empty;
++
++        [JsonPropertyName("file_type")]
++        public string FileType { get; set; } = string.Empty;
++
++        [JsonPropertyName("file_size")]
++        public long FileSize { get; set; }
++
++        [JsonPropertyName("storage_url")]
++        public string StorageUrl { get; set; } = string.Empty;
++
++        [JsonPropertyName("extracted_text")]
++        public string? ExtractedText { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonChatQueryPayload.cs b/src/AllocServer/DTOs/AIChat/PythonChatQueryPayload.cs
+new file mode 100644
+index 0000000..d3da816
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonChatQueryPayload.cs
+@@ -0,0 +1,35 @@
++using System.Collections.Generic;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonChatQueryPayload
++    {
++        [JsonPropertyName("conversation_id")]
++        public string? ConversationId { get; set; }
++
++        [JsonPropertyName("user_id")]
++        public string UserId { get; set; } = string.Empty;
++
++        [JsonPropertyName("message")]
++        public string Message { get; set; } = string.Empty;
++
++        [JsonPropertyName("attachments")]
++        public List<PythonAttachmentDto>? Attachments { get; set; }
++
++        [JsonPropertyName("provider")]
++        public string? Provider { get; set; }
++
++        [JsonPropertyName("model")]
++        public string? Model { get; set; }
++
++        [JsonPropertyName("temperature")]
++        public float? Temperature { get; set; }
++
++        [JsonPropertyName("force_new")]
++        public bool? ForceNew { get; set; }
++
++        [JsonPropertyName("dynamic_tools_metadata")]
++        public Dictionary<string, object>? DynamicToolsMetadata { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonChatQueryRequest.cs b/src/AllocServer/DTOs/AIChat/PythonChatQueryRequest.cs
+new file mode 100644
+index 0000000..62e6aac
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonChatQueryRequest.cs
+@@ -0,0 +1,38 @@
++using System.Collections.Generic;
++using System.ComponentModel.DataAnnotations;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonChatQueryRequest
++    {
++        [Required]
++        [JsonPropertyName("workspaceId")]
++        public int WorkspaceId { get; set; }
++
++        [JsonPropertyName("conversation_id")]
++        public string? ConversationId { get; set; }
++
++        [Required]
++        [JsonPropertyName("message")]
++        public string Message { get; set; } = string.Empty;
++
++        [JsonPropertyName("attachments")]
++        public List<PythonAttachmentDto>? Attachments { get; set; }
++
++        [JsonPropertyName("provider")]
++        public string? Provider { get; set; }
++
++        [JsonPropertyName("model")]
++        public string? Model { get; set; }
++
++        [JsonPropertyName("temperature")]
++        public float? Temperature { get; set; }
++
++        [JsonPropertyName("force_new")]
++        public bool? ForceNew { get; set; }
++
++        [JsonPropertyName("dynamic_tools_metadata")]
++        public Dictionary<string, object>? DynamicToolsMetadata { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonChatQueryResponse.cs b/src/AllocServer/DTOs/AIChat/PythonChatQueryResponse.cs
+new file mode 100644
+index 0000000..1e42e51
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonChatQueryResponse.cs
+@@ -0,0 +1,37 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonChatQueryResponse
++    {
++        [JsonPropertyName("response")]
++        public string Response { get; set; } = string.Empty;
++
++        [JsonPropertyName("conversation_id")]
++        public string ConversationId { get; set; } = string.Empty;
++
++        [JsonPropertyName("status")]
++        public string Status { get; set; } = string.Empty;
++
++        [JsonPropertyName("usage")]
++        public PythonChatUsageDto? Usage { get; set; }
++
++        [JsonPropertyName("title_status")]
++        public string? TitleStatus { get; set; }
++
++        [JsonPropertyName("remaining_quota")]
++        public int? RemainingQuota { get; set; }
++    }
++
++    public class PythonChatUsageDto
++    {
++        [JsonPropertyName("prompt_tokens")]
++        public int PromptTokens { get; set; }
++
++        [JsonPropertyName("completion_tokens")]
++        public int CompletionTokens { get; set; }
++
++        [JsonPropertyName("total_tokens")]
++        public int TotalTokens { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonConversationDto.cs b/src/AllocServer/DTOs/AIChat/PythonConversationDto.cs
+new file mode 100644
+index 0000000..63f3d40
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonConversationDto.cs
+@@ -0,0 +1,35 @@
++using System;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonConversationDto
++    {
++        [JsonPropertyName("id")]
++        public string Id { get; set; } = string.Empty;
++
++        [JsonPropertyName("conversation_id")]
++        public string ConversationId { get; set; } = string.Empty;
++
++        [JsonPropertyName("user_id")]
++        public string UserId { get; set; } = string.Empty;
++
++        [JsonPropertyName("title")]
++        public string Title { get; set; } = string.Empty;
++
++        [JsonPropertyName("summary")]
++        public string? Summary { get; set; }
++
++        [JsonPropertyName("created_at")]
++        public DateTime CreatedAt { get; set; }
++
++        [JsonPropertyName("updated_at")]
++        public DateTime UpdatedAt { get; set; }
++
++        [JsonPropertyName("version")]
++        public int Version { get; set; }
++
++        [JsonPropertyName("metadata")]
++        public PythonMetadataDto? Metadata { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonConversationsResponse.cs b/src/AllocServer/DTOs/AIChat/PythonConversationsResponse.cs
+new file mode 100644
+index 0000000..855bb20
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonConversationsResponse.cs
+@@ -0,0 +1,14 @@
++using System.Collections.Generic;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonConversationsResponse
++    {
++        [JsonPropertyName("total")]
++        public int Total { get; set; }
++
++        [JsonPropertyName("conversations")]
++        public List<PythonConversationDto> Conversations { get; set; } = new();
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonMessageDto.cs b/src/AllocServer/DTOs/AIChat/PythonMessageDto.cs
+new file mode 100644
+index 0000000..aa9b5d5
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonMessageDto.cs
+@@ -0,0 +1,37 @@
++using System;
++using System.Collections.Generic;
++using System.Text.Json;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonMessageDto
++    {
++        [JsonPropertyName("id")]
++        public string Id { get; set; } = string.Empty;
++
++        [JsonPropertyName("conversation_id")]
++        public string ConversationId { get; set; } = string.Empty;
++
++        [JsonPropertyName("role")]
++        public string Role { get; set; } = string.Empty;
++
++        [JsonPropertyName("content")]
++        public string Content { get; set; } = string.Empty;
++
++        [JsonPropertyName("timestamp")]
++        public DateTime Timestamp { get; set; }
++
++        [JsonPropertyName("tokens_count")]
++        public int? TokensCount { get; set; }
++
++        [JsonPropertyName("attachments")]
++        public List<PythonAttachmentDto>? Attachments { get; set; }
++
++        [JsonPropertyName("rag_sources")]
++        public List<string>? RagSources { get; set; }
++
++        [JsonPropertyName("metadata")]
++        public JsonElement? Metadata { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonMessagesResponse.cs b/src/AllocServer/DTOs/AIChat/PythonMessagesResponse.cs
+new file mode 100644
+index 0000000..c07da6a
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonMessagesResponse.cs
+@@ -0,0 +1,23 @@
++using System.Collections.Generic;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonMessagesResponse
++    {
++        [JsonPropertyName("conversation_id")]
++        public string ConversationId { get; set; } = string.Empty;
++
++        [JsonPropertyName("title")]
++        public string Title { get; set; } = string.Empty;
++
++        [JsonPropertyName("summary")]
++        public string? Summary { get; set; }
++
++        [JsonPropertyName("total")]
++        public int Total { get; set; }
++
++        [JsonPropertyName("messages")]
++        public List<PythonMessageDto> Messages { get; set; } = new();
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIChat/PythonMetadataDto.cs b/src/AllocServer/DTOs/AIChat/PythonMetadataDto.cs
+new file mode 100644
+index 0000000..d85acd5
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIChat/PythonMetadataDto.cs
+@@ -0,0 +1,16 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIChat
++{
++    public class PythonMetadataDto
++    {
++        [JsonPropertyName("provider")]
++        public string? Provider { get; set; }
++
++        [JsonPropertyName("model")]
++        public string? Model { get; set; }
++
++        [JsonPropertyName("temperature")]
++        public double? Temperature { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIInsights/PythonBulkAssessmentRequest.cs b/src/AllocServer/DTOs/AIInsights/PythonBulkAssessmentRequest.cs
+new file mode 100644
+index 0000000..b082db9
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIInsights/PythonBulkAssessmentRequest.cs
+@@ -0,0 +1,41 @@
++using System.Collections.Generic;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIInsights
++{
++    public class PythonBulkAssessmentRequest
++    {
++        [JsonPropertyName("request_type")]
++        public string RequestType { get; set; } = "bulk";
++
++        [JsonPropertyName("task_complexity")]
++        public string TaskComplexity { get; set; } = string.Empty;
++
++        [JsonPropertyName("deadline_days")]
++        public int DeadlineDays { get; set; }
++
++        [JsonPropertyName("required_skill_level")]
++        public string RequiredSkillLevel { get; set; } = string.Empty;
++
++        [JsonPropertyName("workload_hours")]
++        public double WorkloadHours { get; set; }
++
++        [JsonPropertyName("task_priority")]
++        public string TaskPriority { get; set; } = string.Empty;
++
++        [JsonPropertyName("team_size")]
++        public int TeamSize { get; set; }
++
++        [JsonPropertyName("employees")]
++        public List<PythonEmployeeAssessmentInfo> Employees { get; set; } = new();
++
++        [JsonPropertyName("provider")]
++        public string Provider { get; set; } = "openai";
++
++        [JsonPropertyName("model")]
++        public string Model { get; set; } = "gpt-4o-mini";
++
++        [JsonPropertyName("temperature")]
++        public double Temperature { get; set; } = 0.7;
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIInsights/PythonBulkAssessmentResponse.cs b/src/AllocServer/DTOs/AIInsights/PythonBulkAssessmentResponse.cs
+new file mode 100644
+index 0000000..e4e6bab
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIInsights/PythonBulkAssessmentResponse.cs
+@@ -0,0 +1,26 @@
++using System.Collections.Generic;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIInsights
++{
++    public class PythonBulkAssessmentResponse
++    {
++        [JsonPropertyName("results")]
++        public List<PythonPersonnelAssessmentResponse> Results { get; set; } = new();
++
++        [JsonPropertyName("usage")]
++        public PythonUsageInfo? Usage { get; set; }
++    }
++
++    public class PythonUsageInfo
++    {
++        [JsonPropertyName("prompt_tokens")]
++        public int PromptTokens { get; set; }
++
++        [JsonPropertyName("completion_tokens")]
++        public int CompletionTokens { get; set; }
++
++        [JsonPropertyName("total_tokens")]
++        public int TotalTokens { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIInsights/PythonEmployeeAssessmentInfo.cs b/src/AllocServer/DTOs/AIInsights/PythonEmployeeAssessmentInfo.cs
+new file mode 100644
+index 0000000..42b6dc8
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIInsights/PythonEmployeeAssessmentInfo.cs
+@@ -0,0 +1,25 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIInsights
++{
++    public class PythonEmployeeAssessmentInfo
++    {
++        [JsonPropertyName("employee_id")]
++        public string EmployeeId { get; set; } = string.Empty;
++
++        [JsonPropertyName("employee_name")]
++        public string EmployeeName { get; set; } = string.Empty;
++
++        [JsonPropertyName("experience_years")]
++        public double ExperienceYears { get; set; }
++
++        [JsonPropertyName("skill_level")]
++        public string SkillLevel { get; set; } = string.Empty;
++
++        [JsonPropertyName("technical_skill_score")]
++        public double TechnicalSkillScore { get; set; }
++
++        [JsonPropertyName("communication_score")]
++        public double CommunicationScore { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIInsights/PythonPersonnelAssessmentRequest.cs b/src/AllocServer/DTOs/AIInsights/PythonPersonnelAssessmentRequest.cs
+new file mode 100644
+index 0000000..c6440b8
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIInsights/PythonPersonnelAssessmentRequest.cs
+@@ -0,0 +1,67 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIInsights
++{
++    public class PythonPersonnelAssessmentRequest
++    {
++        [JsonPropertyName("request_type")]
++        public string RequestType { get; set; } = "single";
++
++        [JsonPropertyName("provider")]
++        public string Provider { get; set; } = "openai";
++
++        [JsonPropertyName("model")]
++        public string Model { get; set; } = "gpt-4o-mini";
++
++        [JsonPropertyName("temperature")]
++        public double Temperature { get; set; } = 0.7;
++
++        [JsonPropertyName("experience_years")]
++        public double ExperienceYears { get; set; }
++
++        [JsonPropertyName("education_level")]
++        public string EducationLevel { get; set; } = string.Empty;
++
++        [JsonPropertyName("skill_level")]
++        public string SkillLevel { get; set; } = string.Empty;
++
++        [JsonPropertyName("technical_skill_score")]
++        public double TechnicalSkillScore { get; set; }
++
++        [JsonPropertyName("communication_score")]
++        public double CommunicationScore { get; set; }
++
++        [JsonPropertyName("leadership_score")]
++        public double LeadershipScore { get; set; }
++
++        [JsonPropertyName("problem_solving_score")]
++        public double ProblemSolvingScore { get; set; }
++
++        [JsonPropertyName("task_complexity")]
++        public string TaskComplexity { get; set; } = string.Empty;
++
++        [JsonPropertyName("required_skill_level")]
++        public string RequiredSkillLevel { get; set; } = string.Empty;
++
++        [JsonPropertyName("deadline_days")]
++        public int DeadlineDays { get; set; }
++
++        [JsonPropertyName("workload_hours")]
++        public double WorkloadHours { get; set; }
++
++        [JsonPropertyName("task_priority")]
++        public string TaskPriority { get; set; } = string.Empty;
++
++        [JsonPropertyName("team_size")]
++        public int TeamSize { get; set; }
++
++        [JsonPropertyName("attendance_rate")]
++        public double AttendanceRate { get; set; }
++
++        [JsonPropertyName("performance_rating")]
++        public string PerformanceRating { get; set; } = string.Empty;
++
++        [JsonPropertyName("conflict_rate")]
++        public double ConflictRate { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIInsights/PythonPersonnelAssessmentResponse.cs b/src/AllocServer/DTOs/AIInsights/PythonPersonnelAssessmentResponse.cs
+new file mode 100644
+index 0000000..a874624
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIInsights/PythonPersonnelAssessmentResponse.cs
+@@ -0,0 +1,56 @@
++using System.Collections.Generic;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIInsights
++{
++    public class PythonPersonnelAssessmentResponse
++    {
++        [JsonPropertyName("prediction_label")]
++        public string PredictionLabel { get; set; } = string.Empty;
++
++        [JsonPropertyName("prediction_code")]
++        public int PredictionCode { get; set; }
++
++        [JsonPropertyName("class_probabilities")]
++        public Dictionary<string, double>? ClassProbabilities { get; set; }
++
++        [JsonPropertyName("confidence_score")]
++        public double ConfidenceScore { get; set; }
++
++        [JsonPropertyName("business_status_code")]
++        public string BusinessStatusCode { get; set; } = string.Empty;
++
++        [JsonPropertyName("business_status_text")]
++        public string BusinessStatusText { get; set; } = string.Empty;
++
++        [JsonPropertyName("success_factors")]
++        public List<string>? SuccessFactors { get; set; }
++
++        [JsonPropertyName("potential_challenges")]
++        public List<string>? PotentialChallenges { get; set; }
++
++        [JsonPropertyName("llm_insight")]
++        public string LlmInsight { get; set; } = string.Empty;
++
++        [JsonPropertyName("explanation_source")]
++        public string ExplanationSource { get; set; } = string.Empty;
++
++        [JsonPropertyName("assumptions")]
++        public Dictionary<string, object>? Assumptions { get; set; }
++
++        [JsonPropertyName("missing_fields")]
++        public List<string>? MissingFields { get; set; }
++
++        [JsonPropertyName("confidence_penalty")]
++        public double ConfidencePenalty { get; set; }
++
++        [JsonPropertyName("fit_percentage")]
++        public double FitPercentage { get; set; }
++
++        [JsonPropertyName("employee_id")]
++        public string? EmployeeId { get; set; }
++
++        [JsonPropertyName("employee_name")]
++        public string? EmployeeName { get; set; }
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIInsights/PythonProjectRiskRequest.cs b/src/AllocServer/DTOs/AIInsights/PythonProjectRiskRequest.cs
+new file mode 100644
+index 0000000..ce07eaa
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIInsights/PythonProjectRiskRequest.cs
+@@ -0,0 +1,46 @@
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIInsights
++{
++    public class PythonProjectRiskRequest
++    {
++        [JsonPropertyName("Project_Duration_Days")]
++        public int ProjectDurationDays { get; set; }
++
++        [JsonPropertyName("Expected_Budget")]
++        public double ExpectedBudget { get; set; }
++
++        [JsonPropertyName("Team_Size")]
++        public int TeamSize { get; set; }
++
++        [JsonPropertyName("Avg_Team_Skill_Level")]
++        public double AvgTeamSkillLevel { get; set; }
++
++        [JsonPropertyName("Complexity_Score")]
++        public double ComplexityScore { get; set; }
++
++        [JsonPropertyName("Budget_Utilization")]
++        public double BudgetUtilization { get; set; }
++
++        [JsonPropertyName("Methodology_Used_Kanban")]
++        public int MethodologyUsedKanban { get; set; }
++
++        [JsonPropertyName("Methodology_Used_Scrum")]
++        public int MethodologyUsedScrum { get; set; }
++
++        [JsonPropertyName("Methodology_Used_Waterfall")]
++        public int MethodologyUsedWaterfall { get; set; }
++
++        [JsonPropertyName("Methodology_Used_Hybrid")]
++        public int MethodologyUsedHybrid { get; set; }
++
++        [JsonPropertyName("provider")]
++        public string Provider { get; set; } = "openai";
++
++        [JsonPropertyName("model")]
++        public string Model { get; set; } = "gpt-4o";
++
++        [JsonPropertyName("temperature")]
++        public double Temperature { get; set; } = 0.5;
++    }
++}
+diff --git a/src/AllocServer/DTOs/AIInsights/PythonProjectRiskResponse.cs b/src/AllocServer/DTOs/AIInsights/PythonProjectRiskResponse.cs
+new file mode 100644
+index 0000000..565c0e3
+--- /dev/null
++++ b/src/AllocServer/DTOs/AIInsights/PythonProjectRiskResponse.cs
+@@ -0,0 +1,38 @@
++using System.Collections.Generic;
++using System.Text.Json.Serialization;
++
++namespace AllocServer.DTOs.AIInsights
++{
++    public class PythonProjectRiskResponse
++    {
++        [JsonPropertyName("prediction_label")]
++        public string PredictionLabel { get; set; } = string.Empty;
++
++        [JsonPropertyName("prediction_code")]
++        public int PredictionCode { get; set; }
++
++        [JsonPropertyName("class_probabilities")]
++        public Dictionary<string, double>? ClassProbabilities { get; set; }
++
++        [JsonPropertyName("confidence_score")]
++        public double ConfidenceScore { get; set; }
++
++        [JsonPropertyName("business_status_code")]
++        public string BusinessStatusCode { get; set; } = string.Empty;
++
++        [JsonPropertyName("business_status_text")]
++        public string BusinessStatusText { get; set; } = string.Empty;
++
++        [JsonPropertyName("success_factors")]
++        public List<string>? SuccessFactors { get; set; }
++
++        [JsonPropertyName("potential_challenges")]
++        public List<string>? PotentialChallenges { get; set; }
++
++        [JsonPropertyName("llm_insight")]
++        public string LlmInsight { get; set; } = string.Empty;
++
++        [JsonPropertyName("explanation_source")]
++        public string ExplanationSource { get; set; } = string.Empty;
++    }
++}
+diff --git a/src/AllocServer/Data/ApplicationDbContext.cs b/src/AllocServer/Data/ApplicationDbContext.cs
+index 1b6c64f..ffe6daa 100644
+--- a/src/AllocServer/Data/ApplicationDbContext.cs
++++ b/src/AllocServer/Data/ApplicationDbContext.cs
+@@ -46,6 +46,9 @@ namespace AllocServer.Data
+ 
+         // WorkspaceMemberProfile Entities
+         public DbSet<WorkspaceMemberProfile> WorkspaceMemberProfiles { get; set; }
++        public DbSet<ProjectRiskFeature> ProjectRiskFeatures { get; set; }
++        public DbSet<MemberCurrentWorkload> MemberCurrentWorkloads { get; set; }
++        public DbSet<MemberHistoricalPerformance> MemberHistoricalPerformances { get; set; }
+         public DbSet<Skill> Skills { get; set; }
+         public DbSet<ResourceSkill> ResourceSkills { get; set; }
+         public DbSet<ReviewCycle> ReviewCycles { get; set; }
+@@ -219,6 +222,21 @@ namespace AllocServer.Data
+                 .ToView("vw_WorkspaceCurrentLimits")
+                 .HasNoKey();
+ 
++            // ProjectRiskFeature maps to a View
++            modelBuilder.Entity<ProjectRiskFeature>()
++                .ToView("vw_ProjectRiskFeatures")
++                .HasNoKey();
++
++            // MemberCurrentWorkload maps to a View
++            modelBuilder.Entity<MemberCurrentWorkload>()
++                .ToView("vw_MemberCurrentWorkload")
++                .HasNoKey();
++
++            // MemberHistoricalPerformance maps to a View
++            modelBuilder.Entity<MemberHistoricalPerformance>()
++                .ToView("vw_MemberHistoricalPerformance")
++                .HasNoKey();
++
+             modelBuilder.Entity<RolePermission>()
+                 .HasKey(rolePermission => new
+                 {
+diff --git a/src/AllocServer/Extensions/DependencyInjectionExtensions.cs b/src/AllocServer/Extensions/DependencyInjectionExtensions.cs
+index 656a98c..89bf0e8 100644
+--- a/src/AllocServer/Extensions/DependencyInjectionExtensions.cs
++++ b/src/AllocServer/Extensions/DependencyInjectionExtensions.cs
+@@ -4,6 +4,7 @@ using System.Reflection;
+ using Microsoft.Extensions.DependencyInjection;
+ using Microsoft.Extensions.Logging;
+ using Microsoft.Extensions.Logging.Abstractions;
++using Microsoft.Extensions.Configuration;
+ using AllocServer.Interfaces;
+ using AllocServer.Interfaces.AI;
+ using AllocServer.Interfaces.AIInsights;
+@@ -81,11 +82,25 @@ namespace AllocServer.Extensions
+             services.AddScoped<IAIInsightService, AIInsightService>();
+             services.AddScoped<IAIAnalysisService, AIAnalysisService>();
+             services.AddScoped<IAIProvider, MockAIProvider>();
++            services.AddScoped<IPythonChatService, PythonChatService>();
++            services.AddSingleton<IAIQuotaCompensationQueue, AIQuotaCompensationQueue>();
++            services.AddHostedService<AIQuotaCompensationBackgroundService>();
+             services.AddScoped<IRequestService, RequestService>();
+             services.AddScoped<ISessionService, SessionService>();
+             services.AddScoped<ITokenDenylistService, TokenDenylistService>();
+             services.AddScoped<RequireActiveAccountFilter>();
+             services.AddScoped<RequireSystemAccountFilter>();
++            services.AddScoped<RequireInternalTokenFilter>();
++
++            // AI Dynamic Webhook Tool Execution & Guards
++            services.AddScoped<IAIToolSafetyGuard, AIToolSafetyGuard>();
++            services.AddScoped<IAIToolDispatcher, AIToolDispatcher>();
++            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.CreateProjectToolHandler>();
++            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.CreateTaskToolHandler>();
++            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.GetProjectInfoToolHandler>();
++            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.GetEmployeeListToolHandler>();
++            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.GetEmployeeDetailToolHandler>();
++            services.AddHostedService<AIBackchannelToolSyncService>();
+ 
+             // Storage Strategy + Factory
+             services.AddScoped<AzureBlobStorageStrategy>();
+@@ -138,6 +153,55 @@ namespace AllocServer.Extensions
+                 client.Timeout = TimeSpan.FromSeconds(10);
+             });
+ 
++            // HttpClient for Python AI Server (Internal APIs)
++            services.AddHttpClient("PythonAIClient", (provider, client) =>
++            {
++                var config = provider.GetRequiredService<IConfiguration>();
++                var settings = config.GetSection("PythonServiceSettings");
++                var baseAddress = settings["BaseAddress"] ?? throw new InvalidOperationException("PythonServiceSettings:BaseAddress is missing.");
++                
++                var internalSection = settings.GetSection("Internal");
++                var headerName = internalSection["HeaderName"] ?? settings["HeaderName"] ?? "X-Internal-Token";
++                var secret = internalSection["Secret"] ?? settings["Secret"] ?? throw new InvalidOperationException("PythonServiceSettings:Secret is missing.");
++
++                client.BaseAddress = new Uri(baseAddress);
++                client.DefaultRequestHeaders.Add(headerName, secret);
++            })
++            .AddStandardResilienceHandler(options =>
++            {
++                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
++                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(30);
++            });
++
++            // HttpClient for Python LLM (specifically Chat and heavy queries)
++            services.AddHttpClient("PythonLLMClient", (provider, client) =>
++            {
++                var config = provider.GetRequiredService<IConfiguration>();
++                var settings = config.GetSection("PythonServiceSettings");
++                var baseAddress = settings["BaseAddress"] ?? throw new InvalidOperationException("PythonServiceSettings:BaseAddress is missing.");
++                
++                var publicSection = settings.GetSection("Public");
++                var headerName = publicSection["HeaderName"] ?? settings["HeaderName"] ?? "X-API-Key";
++                var secret = publicSection["Secret"] ?? settings["Secret"] ?? throw new InvalidOperationException("PythonServiceSettings:Secret is missing.");
++
++                client.BaseAddress = new Uri(baseAddress);
++                
++                if (headerName.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
++                {
++                    client.DefaultRequestHeaders.TryAddWithoutValidation(headerName, secret.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? secret : $"Bearer {secret}");
++                }
++                else
++                {
++                    client.DefaultRequestHeaders.Add(headerName, secret);
++                }
++            })
++            .AddStandardResilienceHandler(options =>
++            {
++                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(60);
++                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(120);
++                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(130);
++            });
++
+             return services;
+         }
+ 
+diff --git a/src/AllocServer/Filters/RequireInternalTokenAttribute.cs b/src/AllocServer/Filters/RequireInternalTokenAttribute.cs
+new file mode 100644
+index 0000000..17a9372
+--- /dev/null
++++ b/src/AllocServer/Filters/RequireInternalTokenAttribute.cs
+@@ -0,0 +1,13 @@
++using System;
++using Microsoft.AspNetCore.Mvc;
++
++namespace AllocServer.Filters
++{
++    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
++    public sealed class RequireInternalTokenAttribute : ServiceFilterAttribute
++    {
++        public RequireInternalTokenAttribute() : base(typeof(RequireInternalTokenFilter))
++        {
++        }
++    }
++}
+diff --git a/src/AllocServer/Filters/RequireInternalTokenFilter.cs b/src/AllocServer/Filters/RequireInternalTokenFilter.cs
+new file mode 100644
+index 0000000..479ca4b
+--- /dev/null
++++ b/src/AllocServer/Filters/RequireInternalTokenFilter.cs
+@@ -0,0 +1,47 @@
++using System;
++using System.Threading.Tasks;
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Mvc;
++using Microsoft.AspNetCore.Mvc.Filters;
++using Microsoft.Extensions.Configuration;
++
++namespace AllocServer.Filters
++{
++    public class RequireInternalTokenFilter : IAsyncActionFilter
++    {
++        private readonly IConfiguration _configuration;
++
++        public RequireInternalTokenFilter(IConfiguration configuration)
++        {
++            _configuration = configuration;
++        }
++
++        public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
++        {
++            var settings = _configuration.GetSection("PythonServiceSettings");
++            var internalSection = settings.GetSection("Internal");
++            
++            var headerName = internalSection["HeaderName"] ?? settings["HeaderName"] ?? "X-Internal-Token";
++            var expectedSecret = internalSection["Secret"] ?? settings["Secret"];
++
++            if (string.IsNullOrEmpty(expectedSecret))
++            {
++                context.Result = new ObjectResult(new { message = "Cß║Ñu h├¼nh bß║úo mß║¡t hß╗ç thß╗æng bß╗ï thiß║┐u." })
++                {
++                    StatusCode = StatusCodes.Status500InternalServerError
++                };
++                return;
++            }
++
++            if (!context.HttpContext.Request.Headers.TryGetValue(headerName, out var actualSecretValues) 
++                || string.IsNullOrEmpty(actualSecretValues.ToString())
++                || !string.Equals(actualSecretValues.ToString(), expectedSecret, StringComparison.Ordinal))
++            {
++                context.Result = new UnauthorizedObjectResult(new { message = "Y├¬u cß║ºu kh├┤ng ─æ╞░ß╗úc x├íc thß╗▒c nß╗Öi bß╗Ö hß╗úp lß╗ç." });
++                return;
++            }
++
++            await next();
++        }
++    }
++}
+diff --git a/src/AllocServer/Interfaces/AI/IAIQuotaCompensationQueue.cs b/src/AllocServer/Interfaces/AI/IAIQuotaCompensationQueue.cs
+new file mode 100644
+index 0000000..bbd0dee
+--- /dev/null
++++ b/src/AllocServer/Interfaces/AI/IAIQuotaCompensationQueue.cs
+@@ -0,0 +1,12 @@
++using System;
++using System.Threading;
++using System.Threading.Tasks;
++
++namespace AllocServer.Interfaces.AI
++{
++    public interface IAIQuotaCompensationQueue
++    {
++        void QueueCompensation(int workspaceId, DateOnly billingMonth);
++        ValueTask<(int WorkspaceId, DateOnly BillingMonth)> DequeueAsync(CancellationToken cancellationToken);
++    }
++}
+diff --git a/src/AllocServer/Interfaces/AI/IAIToolDispatcher.cs b/src/AllocServer/Interfaces/AI/IAIToolDispatcher.cs
+new file mode 100644
+index 0000000..d51e3f9
+--- /dev/null
++++ b/src/AllocServer/Interfaces/AI/IAIToolDispatcher.cs
+@@ -0,0 +1,11 @@
++using System.Collections.Generic;
++using System.Threading.Tasks;
++using AllocServer.Models.AI;
++
++namespace AllocServer.Interfaces.AI
++{
++    public interface IAIToolDispatcher
++    {
++        Task<AIToolResult> DispatchAsync(string toolName, Dictionary<string, object> arguments, string? idempotencyKey);
++    }
++}
+diff --git a/src/AllocServer/Interfaces/AI/IAIToolHandler.cs b/src/AllocServer/Interfaces/AI/IAIToolHandler.cs
+new file mode 100644
+index 0000000..ec26845
+--- /dev/null
++++ b/src/AllocServer/Interfaces/AI/IAIToolHandler.cs
+@@ -0,0 +1,12 @@
++using System.Collections.Generic;
++using System.Threading.Tasks;
++using AllocServer.Models.AI;
++
++namespace AllocServer.Interfaces.AI
++{
++    public interface IAIToolHandler
++    {
++        string ToolName { get; }
++        Task<AIToolResult> ExecuteAsync(Dictionary<string, object> arguments);
++    }
++}
+diff --git a/src/AllocServer/Interfaces/AI/IAIToolSafetyGuard.cs b/src/AllocServer/Interfaces/AI/IAIToolSafetyGuard.cs
+new file mode 100644
+index 0000000..6005aff
+--- /dev/null
++++ b/src/AllocServer/Interfaces/AI/IAIToolSafetyGuard.cs
+@@ -0,0 +1,12 @@
++using System.Collections.Generic;
++using System.Threading.Tasks;
++using AllocServer.Models.AI;
++
++namespace AllocServer.Interfaces.AI
++{
++    public interface IAIToolSafetyGuard
++    {
++        Task<GuardValidationResult> ValidateExecutionAsync(string toolName, Dictionary<string, object> arguments, string? idempotencyKey);
++        Task CacheSuccessfulResponseAsync(string idempotencyKey, AIToolResult result);
++    }
++}
+diff --git a/src/AllocServer/Interfaces/AI/IPythonChatService.cs b/src/AllocServer/Interfaces/AI/IPythonChatService.cs
+new file mode 100644
+index 0000000..21d47d0
+--- /dev/null
++++ b/src/AllocServer/Interfaces/AI/IPythonChatService.cs
+@@ -0,0 +1,12 @@
++using System.Threading.Tasks;
++using AllocServer.DTOs.AIChat;
++
++namespace AllocServer.Interfaces.AI
++{
++    public interface IPythonChatService
++    {
++        Task<PythonConversationsResponse> GetConversationsAsync(string userId, int limit, int skip);
++        Task<PythonMessagesResponse> GetMessagesAsync(string conversationId, string userId, int limit, int skip, string order);
++        Task<PythonChatQueryResponse> ChatAsync(string userId, PythonChatQueryRequest request, System.Threading.CancellationToken cancellationToken = default);
++    }
++}
+diff --git a/src/AllocServer/Models/AI/AIToolResult.cs b/src/AllocServer/Models/AI/AIToolResult.cs
+new file mode 100644
+index 0000000..f476173
+--- /dev/null
++++ b/src/AllocServer/Models/AI/AIToolResult.cs
+@@ -0,0 +1,34 @@
++using System;
++
++namespace AllocServer.Models.AI
++{
++    public class AIToolResult
++    {
++        public bool IsSuccess { get; set; }
++        public int StatusCode { get; set; }
++        public object? Data { get; set; }
++        public string? ErrorCode { get; set; }
++        public string? ErrorMessage { get; set; }
++
++        public static AIToolResult Success(object? data = null)
++        {
++            return new AIToolResult
++            {
++                IsSuccess = true,
++                StatusCode = 200,
++                Data = data
++            };
++        }
++
++        public static AIToolResult Failure(int statusCode, string errorCode, string errorMessage)
++        {
++            return new AIToolResult
++            {
++                IsSuccess = false,
++                StatusCode = statusCode,
++                ErrorCode = errorCode,
++                ErrorMessage = errorMessage
++            };
++        }
++    }
++}
+diff --git a/src/AllocServer/Models/AI/GuardValidationResult.cs b/src/AllocServer/Models/AI/GuardValidationResult.cs
+new file mode 100644
+index 0000000..4977371
+--- /dev/null
++++ b/src/AllocServer/Models/AI/GuardValidationResult.cs
+@@ -0,0 +1,38 @@
++using System;
++
++namespace AllocServer.Models.AI
++{
++    public class GuardValidationResult
++    {
++        public bool IsPassed { get; set; }
++        public string? ErrorCode { get; set; }
++        public string? ErrorMessage { get; set; }
++        public int StatusCode { get; set; } = 400;
++        public object? CachedResult { get; set; } // If idempotency key is matched, return cached JSON directly
++
++        public static GuardValidationResult Pass()
++        {
++            return new GuardValidationResult { IsPassed = true };
++        }
++
++        public static GuardValidationResult Fail(string errorCode, string errorMessage, int statusCode = 400)
++        {
++            return new GuardValidationResult
++            {
++                IsPassed = false,
++                ErrorCode = errorCode,
++                ErrorMessage = errorMessage,
++                StatusCode = statusCode
++            };
++        }
++
++        public static GuardValidationResult HitIdempotency(object cachedResult)
++        {
++            return new GuardValidationResult
++            {
++                IsPassed = true,
++                CachedResult = cachedResult
++            };
++        }
++    }
++}
+diff --git a/src/AllocServer/Models/MemberCurrentWorkload.cs b/src/AllocServer/Models/MemberCurrentWorkload.cs
+new file mode 100644
+index 0000000..7be3967
+--- /dev/null
++++ b/src/AllocServer/Models/MemberCurrentWorkload.cs
+@@ -0,0 +1,9 @@
++namespace AllocServer.Models
++{
++    public class MemberCurrentWorkload
++    {
++        public int WorkspaceMemberID { get; set; }
++        public decimal CurrentWorkloadValue { get; set; }
++        public int ActiveTaskCount { get; set; }
++    }
++}
+diff --git a/src/AllocServer/Models/MemberHistoricalPerformance.cs b/src/AllocServer/Models/MemberHistoricalPerformance.cs
+new file mode 100644
+index 0000000..897748d
+--- /dev/null
++++ b/src/AllocServer/Models/MemberHistoricalPerformance.cs
+@@ -0,0 +1,10 @@
++namespace AllocServer.Models
++{
++    public class MemberHistoricalPerformance
++    {
++        public int WorkspaceMemberID { get; set; }
++        public int TotalCompletedTasks { get; set; }
++        public decimal? PreviousTaskSuccessRate { get; set; }
++        public decimal? EfficiencyRatio { get; set; }
++    }
++}
+diff --git a/src/AllocServer/Models/ProjectRiskFeature.cs b/src/AllocServer/Models/ProjectRiskFeature.cs
+new file mode 100644
+index 0000000..9f60bd0
+--- /dev/null
++++ b/src/AllocServer/Models/ProjectRiskFeature.cs
+@@ -0,0 +1,17 @@
++namespace AllocServer.Models
++{
++    public class ProjectRiskFeature
++    {
++        public int ProjectID { get; set; }
++        public string Project_Name { get; set; } = null!;
++        public int Project_Duration_Days { get; set; }
++        public decimal Expected_Budget { get; set; }
++        public string Methodology_Used { get; set; } = null!;
++        public int Total_Tasks { get; set; }
++        public int Team_Size { get; set; }
++        public double Avg_Team_Skill_Level { get; set; }
++        public double Raw_Complexity_Score { get; set; }
++        public double Budget_Utilization_Rate { get; set; }
++        public double Overall_Risk_Score { get; set; }
++    }
++}
+diff --git a/src/AllocServer/Resources/ExceptionsResource.resx b/src/AllocServer/Resources/ExceptionsResource.resx
+index 954fa05..bcb74bb 100644
+--- a/src/AllocServer/Resources/ExceptionsResource.resx
++++ b/src/AllocServer/Resources/ExceptionsResource.resx
+@@ -390,4 +390,16 @@
+   <data name="ProjectNameExists" xml:space="preserve">
+     <value>T├¬n dß╗▒ ├ín ─æ├ú tß╗ôn tß║íi trong Workspace.</value>
+   </data>
++  <data name="ConversationNotFound" xml:space="preserve">
++    <value>Kh├┤ng t├¼m thß║Ñy cuß╗Öc hß╗Öi thoß║íi AI t╞░╞íng ß╗⌐ng.</value>
++  </data>
++  <data name="ConversationAccessDenied" xml:space="preserve">
++    <value>Bß║ín kh├┤ng c├│ quyß╗ün truy cß║¡p cuß╗Öc hß╗Öi thoß║íi AI n├áy.</value>
++  </data>
++  <data name="InvalidRequest" xml:space="preserve">
++    <value>Y├¬u cß║ºu kh├┤ng hß╗úp lß╗ç.</value>
++  </data>
++  <data name="DownstreamServiceError" xml:space="preserve">
++    <value>Lß╗ùi kß║┐t nß╗æi dß╗ïch vß╗Ñ AI downstream. Vui l├▓ng thß╗¡ lß║íi sau.</value>
++  </data>
+ </root>
+diff --git a/src/AllocServer/Services/AI Services/AIAnalysisService.cs b/src/AllocServer/Services/AI Services/AIAnalysisService.cs
+index 2691adb..6bb31e0 100644
+--- a/src/AllocServer/Services/AI Services/AIAnalysisService.cs	
++++ b/src/AllocServer/Services/AI Services/AIAnalysisService.cs	
+@@ -7,6 +7,9 @@ using AllocServer.Interfaces;
+ using AllocServer.Interfaces.AI;
+ using AllocServer.Models;
+ using Microsoft.EntityFrameworkCore;
++using System.Text;
++using System.Net.Http;
++using System.Net.Http.Json;
+ 
+ namespace AllocServer.Services.AI_Services
+ {
+@@ -26,17 +29,20 @@ namespace AllocServer.Services.AI_Services
+         private readonly IFeatureQuotaService _featureQuotaService;
+         private readonly IAIProvider _aiProvider;
+         private readonly IConfiguration _configuration;
++        private readonly HttpClient _llmClient;
+ 
+         public AIAnalysisService(
+             ApplicationDbContext context,
+             IFeatureQuotaService featureQuotaService,
+             IAIProvider aiProvider,
+-            IConfiguration configuration)
++            IConfiguration configuration,
++            IHttpClientFactory httpClientFactory)
+         {
+             _context = context;
+             _featureQuotaService = featureQuotaService;
+             _aiProvider = aiProvider;
+             _configuration = configuration;
++            _llmClient = httpClientFactory.CreateClient("PythonLLMClient");
+         }
+ 
+         public async Task<AIAskResponse> AnalyzeAsync(int accountId, AIAskRequest request)
+@@ -48,6 +54,11 @@ namespace AllocServer.Services.AI_Services
+                     "AnalysisType chi nhan Risk Warning, Resource Suggestion hoac Budget Forecast.");
+             }
+ 
++            if (analysisType == "Resource Suggestion" && !request.TargetEntityId.HasValue)
++            {
++                throw new ArgumentException("TargetEntityId (TaskId) la bat buoc doi voi Resource Suggestion.");
++            }
++
+             var project = await LoadProjectAsync(request.ProjectId);
+             var membership = await ResolveActiveMembershipAsync(accountId, project.WorkspaceID);
+             await EnsureAskPermissionAsync(membership);
+@@ -79,7 +90,20 @@ namespace AllocServer.Services.AI_Services
+                     billingMonth,
+                     effectiveLimit);
+ 
+-                var content = await _aiProvider.GenerateAnalysisAsync(context);
++                string content;
++                if (analysisType == "Risk Warning")
++                {
++                    content = await GetProjectRiskAnalysisAsync(project);
++                }
++                else if (analysisType == "Resource Suggestion")
++                {
++                    content = await GetResourceAllocationAnalysisAsync(project, request.TargetEntityId, request.Prompt);
++                }
++                else
++                {
++                    content = await _aiProvider.GenerateAnalysisAsync(context);
++                }
++
+                 var now = DateTime.UtcNow;
+                 var log = new AILog
+                 {
+@@ -110,6 +134,494 @@ namespace AllocServer.Services.AI_Services
+             }
+         }
+ 
++        private async Task<string> GetProjectRiskAnalysisAsync(Project project)
++        {
++            // 1. Duration (anchor at project end and start dates)
++            int projectDurationDays = Math.Max(project.EndDate.DayNumber - project.StartDate.DayNumber, 0);
++
++            // 2. Expected Budget (normalized to USD)
++            double expectedBudgetUsd = (double)(project.ExpectedBudget * project.ExchangeRateToUSD);
++
++            // 3. Team Size (Strict Soft Delete & Member Check)
++            int teamSize = await _context.TaskAssignees
++                .AsNoTracking()
++                .Where(ta => ta.Task.ProjectID == project.ProjectID 
++                             && !ta.Task.IsDeleted
++                             && ta.WorkspaceMember.Status == "Active"
++                             && !ta.WorkspaceMember.Resource.IsDeleted)
++                .Select(ta => ta.WorkspaceMemberID)
++                .Distinct()
++                .CountAsync();
++
++            // 4. Average Team Skill Level (Scaled 1-10)
++            var teamMembers = await _context.TaskAssignees
++                .AsNoTracking()
++                .Where(ta => ta.Task.ProjectID == project.ProjectID 
++                             && !ta.Task.IsDeleted
++                             && ta.WorkspaceMember.Status == "Active"
++                             && !ta.WorkspaceMember.Resource.IsDeleted)
++                .Select(ta => new { ta.WorkspaceMemberID, ta.WorkspaceMember.ResourceID })
++                .Distinct()
++                .ToListAsync();
++
++            double avgTeamSkillLevel;
++            if (!teamMembers.Any())
++            {
++                avgTeamSkillLevel = 6.0; // Fallback: default 3.0 scaled by 2.0
++            }
++            else
++            {
++                var resourceIds = teamMembers.Select(m => m.ResourceID).ToList();
++                var memberSkills = await _context.ResourceSkills
++                    .AsNoTracking()
++                    .Where(rs => resourceIds.Contains(rs.ResourceID) && !rs.Skill.IsDeleted)
++                    .ToListAsync();
++
++                var skillAverages = new List<double>();
++                foreach (var member in teamMembers)
++                {
++                    var levels = memberSkills
++                        .Where(rs => rs.ResourceID == member.ResourceID)
++                        .Select(rs => rs.Level)
++                        .ToList();
++                    
++                    double memberAvg = levels.Any() ? levels.Average() : 3.0; // Default is 3.0
++                    skillAverages.Add(memberAvg);
++                }
++                
++                avgTeamSkillLevel = skillAverages.Average() * 2.0; // Scale 1-5 to 2-10
++            }
++
++            // 5. Complexity Score (Scaled 1-10)
++            var complexities = await _context.ProjectTasks
++                .AsNoTracking()
++                .Where(t => t.ProjectID == project.ProjectID && !t.IsDeleted)
++                .Select(t => t.Complexity)
++                .ToListAsync();
++
++            double avgComplexity = 5.0; // Medium fallback
++            if (complexities.Any())
++            {
++                var scores = complexities.Select(c => c.ToUpperInvariant() switch
++                {
++                    "LOW" => 2.0,
++                    "MEDIUM" => 5.0,
++                    "HIGH" => 8.0,
++                    "CRITICAL" => 10.0,
++                    _ => 5.0
++                });
++                avgComplexity = scores.Average();
++            }
++
++            // 6. Budget Utilization (Including Labor Cost)
++            var totalExpenses = await _context.Expenses
++                .AsNoTracking()
++                .Where(e => e.ProjectID == project.ProjectID && !e.IsDeleted)
++                .SumAsync(e => (decimal?)e.Amount) ?? 0m;
++
++            var totalLaborCost = await _context.Timesheets
++                .AsNoTracking()
++                .Where(t => t.Task.ProjectID == project.ProjectID && !t.IsDeleted && !t.Task.IsDeleted)
++                .SumAsync(t => (decimal?)(t.NormalHours * t.LoggedHourlyRate + t.OTHours * t.LoggedOTRate)) ?? 0m;
++
++            double budgetUtilization = 0.0;
++            if (project.ExpectedBudget > 0m)
++            {
++                budgetUtilization = (double)((totalExpenses + totalLaborCost) / project.ExpectedBudget);
++            }
++
++            // 7. Methodology (One-Hot Encoded)
++            int methodKanban = string.Equals(project.Methodology, "Kanban", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
++            int methodScrum = (string.Equals(project.Methodology, "Scrum", StringComparison.OrdinalIgnoreCase) || 
++                               string.Equals(project.Methodology, "Agile", StringComparison.OrdinalIgnoreCase)) ? 1 : 0;
++            int methodWaterfall = string.Equals(project.Methodology, "Waterfall", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
++            int methodHybrid = string.Equals(project.Methodology, "Hybrid", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
++
++            // 8. Resolve plan and map AI settings (Option 2 - System Decided model)
++            var currentLimit = await _context.WorkspaceCurrentLimits
++                .AsNoTracking()
++                .FirstOrDefaultAsync(l => l.WorkspaceID == project.WorkspaceID);
++            
++            string planCode = currentLimit?.PlanCode ?? "FREE";
++            
++            string provider = "openai";
++            string model = "gpt-4o-mini";
++            if (planCode.Equals("PRO", StringComparison.OrdinalIgnoreCase))
++            {
++                model = "gpt-4o";
++            }
++
++            // 9. Prepare Python Project Risk request payload
++            var payload = new PythonProjectRiskRequest
++            {
++                ProjectDurationDays = projectDurationDays,
++                ExpectedBudget = expectedBudgetUsd,
++                TeamSize = teamSize,
++                AvgTeamSkillLevel = avgTeamSkillLevel,
++                ComplexityScore = avgComplexity,
++                BudgetUtilization = budgetUtilization,
++                MethodologyUsedKanban = methodKanban,
++                MethodologyUsedScrum = methodScrum,
++                MethodologyUsedWaterfall = methodWaterfall,
++                MethodologyUsedHybrid = methodHybrid,
++                Provider = provider,
++                Model = model,
++                Temperature = 0.5
++            };
++
++            // 10. Call Python API
++            var response = await _llmClient.PostAsJsonAsync("api/v1/project-risk/assess", payload);
++            if (!response.IsSuccessStatusCode)
++            {
++                throw new InvalidOperationException($"Loi tu AI Server: {response.StatusCode}");
++            }
++
++            var result = await response.Content.ReadFromJsonAsync<PythonProjectRiskResponse>();
++            if (result == null)
++            {
++                throw new InvalidOperationException("Khong the doc phan hoi tu AI Server.");
++            }
++
++            // Format SuggestionContent
++            return string.Join(
++                Environment.NewLine,
++                $"**Kß║┐t quß║ú ph├ón t├¡ch rß╗ºi ro (Model: {model}):** {result.PredictionLabel} (─Éß╗Ö tin cß║¡y: {result.ConfidenceScore * 100:F1}%)",
++                $"**Trß║íng th├íi:** {result.BusinessStatusText}",
++                "",
++                "**Nhß║¡n ─æß╗ïnh chi tiß║┐t:**",
++                result.LlmInsight,
++                "",
++                "**C├íc yß║┐u tß╗æ th├ánh c├┤ng:**",
++                result.SuccessFactors != null && result.SuccessFactors.Any() ? string.Join(Environment.NewLine, result.SuccessFactors.Select(f => $"- {f}")) : "- Kh├┤ng ghi nhß║¡n",
++                "",
++                "**Thß╗¡ th├ích/Nguy c╞í tiß╗üm ß║⌐n:**",
++                result.PotentialChallenges != null && result.PotentialChallenges.Any() ? string.Join(Environment.NewLine, result.PotentialChallenges.Select(c => $"- {c}")) : "- Kh├┤ng ghi nhß║¡n"
++            );
++        }
++
++        private async Task<string> GetResourceAllocationAnalysisAsync(Project project, int? taskId, string? promptWorkspaceMemberId)
++        {
++            if (taskId == null)
++            {
++                throw new ArgumentException("TaskId la bat buoc doi voi Resource Suggestion.");
++            }
++
++            // 1. Load Task
++            var task = await _context.ProjectTasks
++                .AsNoTracking()
++                .FirstOrDefaultAsync(t => t.TaskID == taskId.Value && t.ProjectID == project.ProjectID && !t.IsDeleted);
++
++            if (task == null)
++            {
++                throw new KeyNotFoundException("Khong tim thay Task.");
++            }
++
++            // 2. Map task fields
++            string taskComplexity = task.Complexity.ToLowerInvariant();
++            if (taskComplexity == "critical")
++            {
++                taskComplexity = "high";
++            }
++
++            int deadlineDays = 14;
++            if (task.StartDate.HasValue && task.EndDate.HasValue)
++            {
++                deadlineDays = task.EndDate.Value.DayNumber - task.StartDate.Value.DayNumber;
++            }
++            else if (task.EndDate.HasValue)
++            {
++                deadlineDays = task.EndDate.Value.DayNumber - DateOnly.FromDateTime(DateTime.UtcNow).DayNumber;
++            }
++
++            if (deadlineDays <= 0)
++            {
++                deadlineDays = 1;
++            }
++
++            string requiredSkillLevel = task.RequiredSkillLevel.ToLowerInvariant();
++
++            double workloadHours = 40.0;
++            if (!string.IsNullOrEmpty(task.DurationType))
++            {
++                if (string.Equals(task.DurationType, "Hour", StringComparison.OrdinalIgnoreCase))
++                {
++                    workloadHours = (double)task.EstimatedValue;
++                }
++                else if (string.Equals(task.DurationType, "Day", StringComparison.OrdinalIgnoreCase) || 
++                         string.Equals(task.DurationType, "StoryPoint", StringComparison.OrdinalIgnoreCase))
++                {
++                    workloadHours = (double)(task.EstimatedValue * 8.0m);
++                }
++            }
++
++            string taskPriority = task.Priority.ToLowerInvariant();
++            int teamSize = task.ExpectedTeamSize;
++
++            // 3. Resolve plan/model
++            var currentLimit = await _context.WorkspaceCurrentLimits
++                .AsNoTracking()
++                .FirstOrDefaultAsync(l => l.WorkspaceID == project.WorkspaceID);
++            
++            string planCode = currentLimit?.PlanCode ?? "FREE";
++            
++            string provider = "openai";
++            string model = "gpt-4o-mini";
++            if (planCode.Equals("PRO", StringComparison.OrdinalIgnoreCase))
++            {
++                model = "gpt-4o";
++            }
++
++            // Check single vs bulk based on workspaceMemberId parameter
++            int? workspaceMemberId = null;
++            if (int.TryParse(promptWorkspaceMemberId, out var parsedId))
++            {
++                workspaceMemberId = parsedId;
++            }
++
++            if (workspaceMemberId.HasValue)
++            {
++                // Single assessment
++                var memberData = await (from m in _context.WorkspaceMembers.Include(m => m.Resource)
++                                        join p in _context.WorkspaceMemberProfiles on m.WorkspaceMemberID equals p.WorkspaceMemberID
++                                        where m.WorkspaceMemberID == workspaceMemberId.Value 
++                                           && m.WorkspaceID == project.WorkspaceID 
++                                           && m.Status == "Active" 
++                                           && m.Resource.IsDeleted == false
++                                           && p.IsDeleted == false
++                                        select new { Member = m, Profile = p })
++                                       .FirstOrDefaultAsync();
++
++                if (memberData == null)
++                {
++                    throw new KeyNotFoundException("Khong tim thay member hoac member khong hoat dong trong Workspace.");
++                }
++
++                var member = memberData.Member;
++                var profile = memberData.Profile;
++
++                double experienceYears = (double)profile.ExperienceYears;
++                string educationLevel = profile.EducationLevel?.ToLowerInvariant() ?? "bachelor";
++                double technicalSkillScore = (double)profile.TechnicalSkillScore;
++                double communicationScore = (double)profile.CommunicationScore;
++                double leadershipScore = (double)profile.LeadershipScore;
++                double problemSolvingScore = (double)profile.ProblemSolvingScore;
++                double attendanceRate = (double)profile.AttendanceRate;
++                double conflictRate = (double)profile.ConflictRate;
++
++                string skillLevel = "medium";
++                if (technicalSkillScore < 40.0)
++                {
++                    skillLevel = "low";
++                }
++                else if (technicalSkillScore >= 75.0)
++                {
++                    skillLevel = "high";
++                }
++
++                string performanceRating = "good";
++                if (!string.IsNullOrEmpty(profile.PerformanceRating))
++                {
++                    performanceRating = profile.PerformanceRating.ToUpperInvariant() switch
++                    {
++                        "POOR" => "poor",
++                        "AVERAGE" => "good",
++                        "EXCELLENT" or "OUTSTANDING" => "excellent",
++                        _ => "good"
++                    };
++                }
++
++                var payload = new PythonPersonnelAssessmentRequest
++                {
++                    RequestType = "single",
++                    ExperienceYears = experienceYears,
++                    EducationLevel = educationLevel,
++                    SkillLevel = skillLevel,
++                    TechnicalSkillScore = technicalSkillScore,
++                    CommunicationScore = communicationScore,
++                    LeadershipScore = leadershipScore,
++                    ProblemSolvingScore = problemSolvingScore,
++                    TaskComplexity = taskComplexity,
++                    RequiredSkillLevel = requiredSkillLevel,
++                    DeadlineDays = deadlineDays,
++                    WorkloadHours = workloadHours,
++                    TaskPriority = taskPriority,
++                    TeamSize = teamSize,
++                    AttendanceRate = attendanceRate,
++                    PerformanceRating = performanceRating,
++                    ConflictRate = conflictRate,
++                    Provider = provider,
++                    Model = model,
++                    Temperature = 0.7
++                };
++
++                var response = await _llmClient.PostAsJsonAsync("api/v1/allocation/assess", payload);
++                if (!response.IsSuccessStatusCode)
++                {
++                    throw new InvalidOperationException($"Loi tu AI Server: {response.StatusCode}");
++                }
++
++                var result = await response.Content.ReadFromJsonAsync<PythonPersonnelAssessmentResponse>();
++                if (result == null)
++                {
++                    throw new InvalidOperationException("Khong the doc phan hoi tu AI Server.");
++                }
++
++                string successFactorsStr = result.SuccessFactors != null && result.SuccessFactors.Any() 
++                    ? string.Join(Environment.NewLine, result.SuccessFactors.Select(f => $"- {f}")) 
++                    : "- Kh├┤ng ghi nhß║¡n";
++
++                string challengesStr = result.PotentialChallenges != null && result.PotentialChallenges.Any() 
++                    ? string.Join(Environment.NewLine, result.PotentialChallenges.Select(c => $"- {c}")) 
++                    : "- Kh├┤ng ghi nhß║¡n";
++
++                return $"""
++                    ### ≡ƒôè Kß║┐t Quß║ú ─É├ính Gi├í Nh├ón Sß╗▒ (Model: {model})
++                    * **Nh├ón sß╗▒:** {member.Resource.FullName} (M├ú: {member.EmployeeCode})
++                    * **Kß║┐t quß║ú ─æ├ính gi├í:** {result.PredictionLabel} (─Éß╗Ö tin cß║¡y: {result.ConfidenceScore * 100:F1}%)
++                    * **─Éiß╗âm sß╗æ ph├╣ hß╗úp (Fit Score):** {result.FitPercentage:F1}%
++                    * **Trß║íng th├íi:** {result.BusinessStatusText}
++                    
++                    **≡ƒÆí Nhß║¡n ─æß╗ïnh chi tiß║┐t:**
++                    {result.LlmInsight}
++                    
++                    **≡ƒîƒ C├íc yß║┐u tß╗æ thuß║¡n lß╗úi:**
++                    {successFactorsStr}
++                    
++                    **ΓÜá∩╕Å Kh├│ kh─ân/Th├ích thß╗⌐c tiß╗üm ß║⌐n:**
++                    {challengesStr}
++                    """;
++            }
++            else
++            {
++                // Bulk assessment
++                var activeMemberData = await (from m in _context.WorkspaceMembers.Include(m => m.Resource)
++                                              join p in _context.WorkspaceMemberProfiles on m.WorkspaceMemberID equals p.WorkspaceMemberID
++                                              where m.WorkspaceID == project.WorkspaceID 
++                                                 && m.Status == "Active"
++                                                 && m.Resource.IsDeleted == false
++                                                 && p.IsDeleted == false
++                                              select new { Member = m, Profile = p })
++                                             .ToListAsync();
++
++                if (!activeMemberData.Any())
++                {
++                    throw new InvalidOperationException("Khong co nhan su nao dang hoat dong trong Workspace de danh gia.");
++                }
++
++                var employeesPayload = new List<PythonEmployeeAssessmentInfo>();
++                foreach (var data in activeMemberData)
++                {
++                    var m = data.Member;
++                    var p = data.Profile;
++
++                    double expYears = (double)p.ExperienceYears;
++                    double techScore = (double)p.TechnicalSkillScore;
++                    double commScore = (double)p.CommunicationScore;
++
++                    string sLevel = "medium";
++                    if (techScore < 40.0)
++                    {
++                        sLevel = "low";
++                    }
++                    else if (techScore >= 75.0)
++                    {
++                        sLevel = "high";
++                    }
++
++                    employeesPayload.Add(new PythonEmployeeAssessmentInfo
++                    {
++                        EmployeeId = m.EmployeeCode,
++                        EmployeeName = m.Resource.FullName,
++                        ExperienceYears = expYears,
++                        SkillLevel = sLevel,
++                        TechnicalSkillScore = techScore,
++                        CommunicationScore = commScore
++                    });
++                }
++
++                var payload = new PythonBulkAssessmentRequest
++                {
++                    RequestType = "bulk",
++                    TaskComplexity = taskComplexity,
++                    DeadlineDays = deadlineDays,
++                    RequiredSkillLevel = requiredSkillLevel,
++                    WorkloadHours = workloadHours,
++                    TaskPriority = taskPriority,
++                    TeamSize = teamSize,
++                    Employees = employeesPayload,
++                    Provider = provider,
++                    Model = model,
++                    Temperature = 0.7
++                };
++
++                var response = await _llmClient.PostAsJsonAsync("api/v1/allocation/assess", payload);
++                if (!response.IsSuccessStatusCode)
++                {
++                    throw new InvalidOperationException($"Loi tu AI Server: {response.StatusCode}");
++                }
++
++                var result = await response.Content.ReadFromJsonAsync<PythonBulkAssessmentResponse>();
++                if (result == null)
++                {
++                    throw new InvalidOperationException("Khong the doc phan hoi tu AI Server.");
++                }
++
++                // Match back employee names and codes if missing
++                for (int i = 0; i < result.Results.Count; i++)
++                {
++                    var res = result.Results[i];
++                    if (string.IsNullOrEmpty(res.EmployeeId) && i < payload.Employees.Count)
++                    {
++                        res.EmployeeId = payload.Employees[i].EmployeeId;
++                    }
++                    if (string.IsNullOrEmpty(res.EmployeeName) && i < payload.Employees.Count)
++                    {
++                        res.EmployeeName = payload.Employees[i].EmployeeName;
++                    }
++                }
++
++                var rankedResults = result.Results
++                    .OrderByDescending(r => r.FitPercentage)
++                    .ToList();
++
++                var tableBuilder = new StringBuilder();
++                tableBuilder.AppendLine("| Hß║íng | M├ú nh├ón vi├¬n | T├¬n nh├ón sß╗▒ | ─É├ính gi├í | ─Éiß╗âm ph├╣ hß╗úp | ─Éß╗Ö tin cß║¡y | Trß║íng th├íi |");
++                tableBuilder.AppendLine("|---|---|---|---|---|---|---|");
++
++                for (int i = 0; i < rankedResults.Count; i++)
++                {
++                    var res = rankedResults[i];
++                    tableBuilder.AppendLine($"| {i + 1} | {res.EmployeeId} | {res.EmployeeName} | {res.PredictionLabel} | {res.FitPercentage:F1}% | {res.ConfidenceScore * 100:F1}% | {res.BusinessStatusText} |");
++                }
++
++                var detailsBuilder = new StringBuilder();
++                foreach (var res in rankedResults)
++                {
++                    string successStr = res.SuccessFactors != null && res.SuccessFactors.Any() ? string.Join(", ", res.SuccessFactors) : "Kh├┤ng ghi nhß║¡n";
++                    string challengesStr = res.PotentialChallenges != null && res.PotentialChallenges.Any() ? string.Join(", ", res.PotentialChallenges) : "Kh├┤ng ghi nhß║¡n";
++
++                    detailsBuilder.AppendLine($"""
++                        #### ≡ƒæñ {res.EmployeeName} ({res.EmployeeId})
++                        - **─É├ính gi├í:** {res.PredictionLabel} ({res.BusinessStatusText}) - **─Éiß╗âm ph├╣ hß╗úp:** {res.FitPercentage:F1}%
++                        - **Nhß║¡n ─æß╗ïnh:** {res.LlmInsight}
++                        - **Yß║┐u tß╗æ thuß║¡n lß╗úi:** {successStr}
++                        - **Thß╗¡ th├ích:** {challengesStr}
++                        
++                        """);
++                }
++
++                return $"""
++                    ### ≡ƒôè Bß║úng Xß║┐p Hß║íng Mß╗⌐c ─Éß╗Ö Ph├╣ Hß╗úp Nh├ón Sß╗▒ (Model: {model})
++                    
++                    {tableBuilder}
++                    
++                    ### ≡ƒÆí Chi tiß║┐t nhß║¡n ─æß╗ïnh tß╗½ AI:
++                    
++                    {detailsBuilder}
++                    """;
++            }
++        }
++
+         private async Task<Project> LoadProjectAsync(int projectId)
+         {
+             var project = await _context.Projects
+diff --git a/src/AllocServer/Services/AI Services/AIBackchannelToolSyncService.cs b/src/AllocServer/Services/AI Services/AIBackchannelToolSyncService.cs
+new file mode 100644
+index 0000000..a6cf9a9
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/AIBackchannelToolSyncService.cs	
+@@ -0,0 +1,285 @@
++using System;
++using System.Collections.Generic;
++using System.Net.Http;
++using System.Net.Http.Json;
++using System.Threading;
++using System.Threading.Tasks;
++using Microsoft.Extensions.Configuration;
++using Microsoft.Extensions.DependencyInjection;
++using Microsoft.Extensions.Hosting;
++using Microsoft.Extensions.Logging;
++
++namespace AllocServer.Services.AI_Services
++{
++    public class AIBackchannelToolSyncService : IHostedService
++    {
++        private readonly IHttpClientFactory _httpClientFactory;
++        private readonly IConfiguration _configuration;
++        private readonly ILogger<AIBackchannelToolSyncService> _logger;
++        private readonly IServiceScopeFactory _scopeFactory;
++        private CancellationTokenSource? _cts;
++
++        public AIBackchannelToolSyncService(
++            IHttpClientFactory httpClientFactory,
++            IConfiguration configuration,
++            ILogger<AIBackchannelToolSyncService> logger,
++            IServiceScopeFactory scopeFactory)
++        {
++            _httpClientFactory = httpClientFactory;
++            _configuration = configuration;
++            _logger = logger;
++            _scopeFactory = scopeFactory;
++        }
++
++        public Task StartAsync(CancellationToken cancellationToken)
++        {
++            _logger.LogInformation("[AI Tool Sync] Khß╗ƒi ─æß╗Öng background service ─æß╗ông bß╗Ö tools.");
++            _cts = new CancellationTokenSource();
++
++            // Chß║íy tiß║┐n tr├¼nh ─æß╗ông bß╗Ö ngß║ºm ─æß╗â kh├┤ng block luß╗ông startup ch├¡nh cß╗ºa Web Host
++            _ = SyncToolsWithRetryAsync(_cts.Token);
++
++            return Task.CompletedTask;
++        }
++
++        public Task StopAsync(CancellationToken cancellationToken)
++        {
++            _logger.LogInformation("[AI Tool Sync] Dß╗½ng background service ─æß╗ông bß╗Ö tools.");
++            _cts?.Cancel();
++            return Task.CompletedTask;
++        }
++
++        private async Task SyncToolsWithRetryAsync(CancellationToken cancellationToken)
++        {
++            // Tr├ính race condition bß║▒ng c├ích chß╗¥ 3-5 gi├óy ─æß╗â Kestrel Server khß╗ƒi chß║íy ho├án tß║Ñt tr╞░ß╗¢c khi ─æ─âng k├╜
++            try
++            {
++                await Task.Delay(3000, cancellationToken);
++            }
++            catch (TaskCanceledException)
++            {
++                return;
++            }
++
++            var settings = _configuration.GetSection("PythonServiceSettings");
++            var callbackBaseUrl = settings["ToolsCallbackBaseUrl"] ?? "http://host.docker.internal:5000/";
++            if (!callbackBaseUrl.EndsWith("/"))
++            {
++                callbackBaseUrl += "/";
++            }
++
++            var internalSection = settings.GetSection("Internal");
++            var headerName = internalSection["HeaderName"] ?? settings["HeaderName"] ?? "X-Internal-Token";
++            var secret = internalSection["Secret"] ?? settings["Secret"] ?? "testkey123";
++
++            // 1. Tß║ío payload cß║Ñu h├¼nh c├┤ng cß╗Ñ ─æß╗Öng theo chuß║⌐n JSON Schema (Hß╗úp ─æß╗ông LLM)
++            var registerPayload = new RegisterToolsPayload
++            {
++                Tools = new List<DynamicToolDto>
++                {
++                    new DynamicToolDto
++                    {
++                        Name = "create_project",
++                        Description = "Tß║ío mß╗Öt dß╗▒ ├ín mß╗¢i trong Workspace ─æ╞░ß╗úc chß╗ë ─æß╗ïnh. LLM bß║»t buß╗Öc phß║úi ─æiß╗ün ─æß║ºy ─æß╗º c├íc tham sß╗æ ─æ╞░ß╗úc y├¬u cß║ºu. Hß╗úp ─æß╗ông quy chuß║⌐n bß║»t buß╗Öc:\n" +
++                                      "- projectName: T├¬n dß╗▒ ├ín, kh├┤ng ─æ╞░ß╗úc ─æß╗â trß╗æng, tß╗æi ─æa 255 k├╜ tß╗▒.\n" +
++                                      "- startDate & endDate: ─Éß╗ïnh dß║íng 'yyyy-MM-dd', bß║»t buß╗Öc truyß╗ün cß║ú hai v├á ng├áy kß║┐t th├║c phß║úi lß╗¢n h╞ín hoß║╖c bß║▒ng ng├áy bß║»t ─æß║ºu (endDate >= startDate).\n" +
++                                      "- expectedBudget: Ng├ón s├ích dß╗▒ kiß║┐n kh├┤ng ─æ╞░ß╗úc ├óm (>= 0).\n" +
++                                      "- methodology: Ph╞░╞íng ph├íp luß║¡n chß╗ë ─æ╞░ß╗úc ph├⌐p nhß║¡n mß╗Öt trong c├íc gi├í trß╗ï: 'Agile', 'Waterfall', 'Scrum', 'Kanban', 'Hybrid'. Mß║╖c ─æß╗ïnh: 'Agile'.\n" +
++                                      "- originalCurrencyCode: M├ú tiß╗ün tß╗ç gß╗æc, tß╗æi ─æa 5 k├╜ tß╗▒. Mß║╖c ─æß╗ïnh: 'USD'.\n" +
++                                      "- exchangeRateToUSD: Tß╗╖ gi├í quy ─æß╗òi sang USD, sß╗æ d╞░╞íng (> 0). Mß║╖c ─æß╗ïnh: 1.0.",
++                        EndpointUrl = $"{callbackBaseUrl}api/v1/internal-tools/create-project",
++                        Method = "POST",
++                        Headers = new Dictionary<string, string> { { headerName, secret } },
++                        BundleGroup = "Project_Management_Tools",
++                        Parameters = new Dictionary<string, object>
++                        {
++                            { "type", "object" },
++                            { "properties", new Dictionary<string, object>
++                                {
++                                    { "workspaceId", new { type = "integer", description = "ID cß╗ºa Workspace chß╗⌐a dß╗▒ ├ín" } },
++                                    { "userId", new { type = "integer", description = "ID Account cß╗ºa ng╞░ß╗¥i thß╗▒c hiß╗çn tß║ío" } },
++                                    { "projectName", new { type = "string", maxLength = 255, description = "T├¬n dß╗▒ ├ín" } },
++                                    { "expectedBudget", new { type = "number", minimum = 0, description = "Ng├ón s├ích dß╗▒ kiß║┐n cß╗ºa dß╗▒ ├ín" } },
++                                    { "startDate", new { type = "string", format = "date", description = "Ng├áy bß║»t ─æß║ºu dß╗▒ ├ín (yyyy-MM-dd)" } },
++                                    { "endDate", new { type = "string", format = "date", description = "Ng├áy kß║┐t th├║c dß╗▒ ├ín (yyyy-MM-dd)" } },
++                                    { "originalCurrencyCode", new { type = "string", maxLength = 5, @default = "USD", description = "M├ú tiß╗ün tß╗ç gß╗æc" } },
++                                    { "exchangeRateToUSD", new { type = "number", minimum = 0.0001, @default = 1.0, description = "Tß╗╖ gi├í quy ─æß╗òi sang USD" } },
++                                    { "methodology", new { type = "string", @enum = new[] { "Agile", "Waterfall", "Scrum", "Kanban", "Hybrid" }, @default = "Agile", description = "Ph╞░╞íng ph├íp quß║ún l├╜ dß╗▒ ├ín" } }
++                                }
++                            },
++                            { "required", new[] { "workspaceId", "userId", "projectName", "startDate", "endDate" } }
++                        }
++                    },
++                    new DynamicToolDto
++                    {
++                        Name = "create_task",
++                        Description = "Tß║ío mß╗Öt nhiß╗çm vß╗Ñ (task) mß╗¢i trong dß╗▒ ├ín ─æ╞░ß╗úc chß╗ë ─æß╗ïnh. LLM bß║»t buß╗Öc ─æiß╗ün c├íc tham sß╗æ ─æ╞░ß╗úc y├¬u cß║ºu. Hß╗úp ─æß╗ông quy chuß║⌐n bß║»t buß╗Öc:\n" +
++                                      "- projectId & taskName: ID dß╗▒ ├ín v├á t├¬n nhiß╗çm vß╗Ñ kh├┤ng ─æ╞░ß╗úc ─æß╗â trß╗æng, t├¬n nhiß╗çm vß╗Ñ tß╗æi ─æa 255 k├╜ tß╗▒.\n" +
++                                      "- estimatedValue: Gi├í trß╗ï ╞░ß╗¢c t├¡nh kh├┤ng ─æ╞░ß╗úc ├óm (>= 0).\n" +
++                                      "- durationType: Loß║íi thß╗¥i l╞░ß╗úng, chß╗ë chß║Ñp nhß║¡n mß╗Öt trong: 'Hour', 'Day', 'StoryPoint'. Bß║»t buß╗Öc ─æiß╗ün.\n" +
++                                      "- startDate & endDate: ─Éß╗ïnh dß║íng 'yyyy-MM-dd'. Ng├áy kß║┐t th├║c phß║úi lß╗¢n h╞ín hoß║╖c bß║▒ng ng├áy bß║»t ─æß║ºu nß║┐u ─æiß╗ün cß║ú hai.\n" +
++                                      "- status: Chß╗ë nhß║¡n: 'To-do', 'In Progress', 'Review', 'Done'. Mß║╖c ─æß╗ïnh: 'To-do'.\n" +
++                                      "- complexity: Chß╗ë nhß║¡n: 'Low', 'Medium', 'High', 'Critical'. Mß║╖c ─æß╗ïnh: 'Medium'.\n" +
++                                      "- requiredSkillLevel: Chß╗ë nhß║¡n: 'Low', 'Medium', 'High', 'Expert'. Mß║╖c ─æß╗ïnh: 'Medium'.\n" +
++                                      "- priority: Chß╗ë nhß║¡n: 'Low', 'Medium', 'High', 'Critical'. Mß║╖c ─æß╗ïnh: 'Medium'.\n" +
++                                      "- expectedTeamSize: Sß╗æ nh├ón sß╗▒ dß╗▒ kiß║┐n tß╗æi thiß╗âu l├á 1. Mß║╖c ─æß╗ïnh: 1.",
++                        EndpointUrl = $"{callbackBaseUrl}api/v1/internal-tools/create-task",
++                        Method = "POST",
++                        Headers = new Dictionary<string, string> { { headerName, secret } },
++                        BundleGroup = "Project_Management_Tools",
++                        Parameters = new Dictionary<string, object>
++                        {
++                            { "type", "object" },
++                            { "properties", new Dictionary<string, object>
++                                {
++                                    { "projectId", new { type = "integer", description = "ID cß╗ºa Dß╗▒ ├ín chß╗⌐a task n├áy" } },
++                                    { "userId", new { type = "integer", description = "ID Account cß╗ºa ng╞░ß╗¥i thß╗▒c hiß╗çn tß║ío task" } },
++                                    { "taskName", new { type = "string", maxLength = 255, description = "T├¬n nhiß╗çm vß╗Ñ" } },
++                                    { "estimatedValue", new { type = "number", minimum = 0, description = "Gi├í trß╗ï ╞░ß╗¢c t├¡nh" } },
++                                    { "durationType", new { type = "string", @enum = new[] { "Hour", "Day", "StoryPoint" }, description = "─É╞ín vß╗ï thß╗¥i l╞░ß╗úng thß╗▒c hiß╗çn" } },
++                                    { "startDate", new { type = "string", format = "date", description = "Ng├áy bß║»t ─æß║ºu (yyyy-MM-dd)" } },
++                                    { "endDate", new { type = "string", format = "date", description = "Ng├áy kß║┐t th├║c (yyyy-MM-dd)" } },
++                                    { "status", new { type = "string", @enum = new[] { "To-do", "In Progress", "Review", "Done" }, @default = "To-do", description = "Trß║íng th├íi task" } },
++                                    { "complexity", new { type = "string", @enum = new[] { "Low", "Medium", "High", "Critical" }, @default = "Medium", description = "─Éß╗Ö phß╗⌐c tß║íp task" } },
++                                    { "requiredSkillLevel", new { type = "string", @enum = new[] { "Low", "Medium", "High", "Expert" }, @default = "Medium", description = "Y├¬u cß║ºu cß║Ñp bß║¡c tr├¼nh ─æß╗Ö kß╗╣ n─âng" } },
++                                    { "priority", new { type = "string", @enum = new[] { "Low", "Medium", "High", "Critical" }, @default = "Medium", description = "Mß╗⌐c ─æß╗Ö ╞░u ti├¬n" } },
++                                    { "expectedTeamSize", new { type = "integer", minimum = 1, @default = 1, description = "Sß╗æ nh├ón vi├¬n dß╗▒ kiß║┐n tß╗æi thiß╗âu" } }
++                                }
++                            },
++                            { "required", new[] { "projectId", "userId", "taskName", "estimatedValue", "durationType" } }
++                        }
++                    },
++                    new DynamicToolDto
++                    {
++                        Name = "get_project_info",
++                        Description = "Lß║Ñy th├┤ng tin tß╗òng quan cß╗ºa mß╗Öt dß╗▒ ├ín bao gß╗ôm thß╗¥i gian thß╗▒c hiß╗çn, ng├ón s├ích, sß╗æ l╞░ß╗úng task, sß╗æ l╞░ß╗úng rß╗ºi ro ─æang mß╗ƒ, ─æiß╗âm rß╗ºi ro trung b├¼nh v├á tß╗òng chi ph├¡ tß╗æi ╞░u h├│a qua View ProjectRiskFeatures. L╞░u ├╜: Tr╞░ß╗¥ng tasksByStatus c├│ thß╗â trß║ú vß╗ü mß╗Öt ─æß╗æi t╞░ß╗úng rß╗ùng '{}' nß║┐u dß╗▒ ├ín mß╗¢i ─æ╞░ß╗úc khß╗ƒi tß║ío v├á ch╞░a c├│ c├┤ng viß╗çc n├áo. Trong tr╞░ß╗¥ng hß╗úp n├áy, LLM n├¬n giß║úi th├¡ch tß╗▒ nhi├¬n cho ng╞░ß╗¥i d├╣ng rß║▒ng dß╗▒ ├ín hiß╗çn ch╞░a ─æ╞░ß╗úc ph├ón bß╗ò c├┤ng viß╗çc n├áo. Y├¬u cß║ºu truyß╗ün projectId v├á userId.",
++                        EndpointUrl = $"{callbackBaseUrl}api/v1/internal-tools/get-project-info",
++                        Method = "POST",
++                        Headers = new Dictionary<string, string> { { headerName, secret } },
++                        BundleGroup = "Project_Analysis_Tools",
++                        Parameters = new Dictionary<string, object>
++                        {
++                            { "type", "object" },
++                            { "properties", new Dictionary<string, object>
++                                {
++                                    { "projectId", new { type = "integer", description = "ID cß╗ºa dß╗▒ ├ín" } },
++                                    { "userId", new { type = "integer", description = "ID t├ái khoß║ún y├¬u cß║ºu lß║Ñy dß╗» liß╗çu" } }
++                                }
++                            },
++                            { "required", new[] { "projectId", "userId" } }
++                        }
++                    },
++                    new DynamicToolDto
++                    {
++                        Name = "get_employee_list",
++                        Description = "Lß║Ñy danh s├ích c├íc nh├ón sß╗▒ ─æang hoß║ít ─æß╗Öng trong Workspace cß╗ºa dß╗▒ ├ín. Kh├┤ng chß╗⌐a c├íc tr╞░ß╗¥ng th├┤ng tin nhß║íy cß║úm. Y├¬u cß║ºu truyß╗ün userId v├á mß╗Öt trong hai tham sß╗æ: workspaceId hoß║╖c projectId.",
++                        EndpointUrl = $"{callbackBaseUrl}api/v1/internal-tools/get-employee-list",
++                        Method = "POST",
++                        Headers = new Dictionary<string, string> { { headerName, secret } },
++                        BundleGroup = "Project_Analysis_Tools",
++                        Parameters = new Dictionary<string, object>
++                        {
++                            { "type", "object" },
++                            { "properties", new Dictionary<string, object>
++                                {
++                                    { "workspaceId", new { type = "integer", description = "ID Workspace cß║ºn tra cß╗⌐u" } },
++                                    { "projectId", new { type = "integer", description = "ID Dß╗▒ ├ín (nß║┐u kh├┤ng truyß╗ün workspaceId)" } },
++                                    { "userId", new { type = "integer", description = "ID t├ái khoß║ún y├¬u cß║ºu lß║Ñy dß╗» liß╗çu" } }
++                                }
++                            },
++                            { "required", new[] { "userId" } }
++                        }
++                    },
++                    new DynamicToolDto
++                    {
++                        Name = "get_employee_detail",
++                        Description = "Lß║Ñy chi tiß║┐t hß╗ô s╞í nh├ón sß╗▒ bao gß╗ôm tr├¼nh ─æß╗Ö chuy├¬n m├┤n, ─æiß╗âm kß╗╣ n─âng, ─æiß╗âm ─æ├ính gi├í hiß╗çu n─âng, danh s├ích kß╗╣ n─âng thß╗▒c tß║┐, hiß╗çu n─âng l├ám viß╗çc lß╗ïch sß╗¡ v├á tß║úi trß╗ìng c├┤ng viß╗çc hiß╗çn tß║íi. Y├¬u cß║ºu bß║úo mß║¡t cao, chß╗ë t├ái khoß║ún c├│ quyß╗ün xem hß╗ô s╞í mß╗¢i gß╗ìi ─æ╞░ß╗úc. Y├¬u cß║ºu truyß╗ün workspaceId, userId v├á mß╗Öt trong hai: workspaceMemberId hoß║╖c employeeCode.",
++                        EndpointUrl = $"{callbackBaseUrl}api/v1/internal-tools/get-employee-detail",
++                        Method = "POST",
++                        Headers = new Dictionary<string, string> { { headerName, secret } },
++                        BundleGroup = "Project_Analysis_Tools",
++                        Parameters = new Dictionary<string, object>
++                        {
++                            { "type", "object" },
++                            { "properties", new Dictionary<string, object>
++                                {
++                                    { "workspaceId", new { type = "integer", description = "ID Workspace chß╗⌐a th├ánh vi├¬n" } },
++                                    { "workspaceMemberId", new { type = "integer", description = "ID WorkspaceMember cß╗ºa nh├ón vi├¬n" } },
++                                    { "employeeCode", new { type = "string", description = "M├ú nh├ón vi├¬n (nß║┐u kh├┤ng c├│ workspaceMemberId)" } },
++                                    { "userId", new { type = "integer", description = "ID t├ái khoß║ún y├¬u cß║ºu lß║Ñy dß╗» liß╗çu" } }
++                                }
++                            },
++                            { "required", new[] { "workspaceId", "userId" } }
++                        }
++                    }
++                }
++            };
++
++            // 2. Exponential Backoff Retry ─æß╗â giß║úi quyß║┐t Startup Race Conditions
++            int maxAttempts = 5;
++            double delaySeconds = 2.0;
++            var client = _httpClientFactory.CreateClient("PythonAIClient");
++
++            for (int attempt = 1; attempt <= maxAttempts; attempt++)
++            {
++                if (cancellationToken.IsCancellationRequested)
++                {
++                    _logger.LogWarning("[AI Tool Sync] Tiß║┐n tr├¼nh ─æß╗ông bß╗Ö bß╗ï hß╗ºy bß╗Å do dß╗ïch vß╗Ñ shutdown.");
++                    return;
++                }
++
++                try
++                {
++                    _logger.LogInformation($"[AI Tool Sync] ─Éang ─æß╗ông bß╗Ö c├┤ng cß╗Ñ ─æß╗Öng sang Python AI Server. Thß╗¡ lß║ºn {attempt}/{maxAttempts}...");
++                    var response = await client.PostAsJsonAsync("api/v1/tools/register", registerPayload, cancellationToken);
++
++                    if (response.IsSuccessStatusCode)
++                    {
++                        _logger.LogInformation("[AI Tool Sync] ─É─âng k├╜ c├┤ng cß╗Ñ th├ánh c├┤ng sang Python AI Server (200 OK).");
++                        return;
++                    }
++
++                    var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
++                    _logger.LogWarning($"[AI Tool Sync] ─É─âng k├╜ c├┤ng cß╗Ñ thß║Ñt bß║íi. M├ú phß║ún hß╗ôi: {response.StatusCode}. Chi tiß║┐t: {responseBody}");
++                }
++                catch (Exception ex)
++                {
++                    _logger.LogWarning($"[AI Tool Sync] Lß╗ùi kß║┐t nß╗æi khi ─æß╗ông bß╗Ö c├┤ng cß╗Ñ sang Python server: {ex.Message}");
++                }
++
++                if (attempt < maxAttempts)
++                {
++                    var backoffTime = TimeSpan.FromSeconds(Math.Pow(delaySeconds, attempt));
++                    _logger.LogInformation($"[AI Tool Sync] ─Éang thß╗¡ lß║íi sau {backoffTime.TotalSeconds} gi├óy...");
++                    try
++                    {
++                        await Task.Delay(backoffTime, cancellationToken);
++                    }
++                    catch (TaskCanceledException)
++                    {
++                        return;
++                    }
++                }
++            }
++
++            _logger.LogError("[AI Tool Sync] Qu├í sß╗æ lß║ºn thß╗¡ lß║íi tß╗æi ─æa. Kh├┤ng thß╗â ─æß╗ông bß╗Ö c├┤ng cß╗Ñ ─æß╗Öng sang Python AI Server. LLM sß║╜ kh├┤ng thß╗â d├╣ng c├íc c├┤ng cß╗Ñ n├áy.");
++        }
++
++        // --- C├íc lß╗¢p DTO nß╗Öi bß╗Ö phß╗Ñc vß╗Ñ viß╗çc Serialize ─æ─âng k├╜ ---
++        private class RegisterToolsPayload
++        {
++            public List<DynamicToolDto> Tools { get; set; } = new();
++        }
++
++        private class DynamicToolDto
++        {
++            public string Name { get; set; } = string.Empty;
++            public string Description { get; set; } = string.Empty;
++            public string EndpointUrl { get; set; } = string.Empty;
++            public string Method { get; set; } = "POST";
++            public Dictionary<string, object> Parameters { get; set; } = new();
++            public Dictionary<string, string> Headers { get; set; } = new();
++            public string BundleGroup { get; set; } = string.Empty;
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/AIQuotaCompensationBackgroundService.cs b/src/AllocServer/Services/AI Services/AIQuotaCompensationBackgroundService.cs
+new file mode 100644
+index 0000000..bf4d289
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/AIQuotaCompensationBackgroundService.cs	
+@@ -0,0 +1,87 @@
++using System;
++using System.Threading;
++using System.Threading.Tasks;
++using AllocServer.Data;
++using AllocServer.Interfaces.AI;
++using Microsoft.EntityFrameworkCore;
++using Microsoft.Extensions.DependencyInjection;
++using Microsoft.Extensions.Hosting;
++using Microsoft.Extensions.Logging;
++
++namespace AllocServer.Services.AI_Services
++{
++    public class AIQuotaCompensationBackgroundService : BackgroundService
++    {
++        private readonly IAIQuotaCompensationQueue _queue;
++        private readonly IServiceProvider _serviceProvider;
++        private readonly ILogger<AIQuotaCompensationBackgroundService> _logger;
++
++        public AIQuotaCompensationBackgroundService(
++            IAIQuotaCompensationQueue queue,
++            IServiceProvider serviceProvider,
++            ILogger<AIQuotaCompensationBackgroundService> logger)
++        {
++            _queue = queue;
++            _serviceProvider = serviceProvider;
++            _logger = logger;
++        }
++
++        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
++        {
++            while (!stoppingToken.IsCancellationRequested)
++            {
++                try
++                {
++                    var (workspaceId, billingMonth) = await _queue.DequeueAsync(stoppingToken);
++                    await ProcessCompensationWithRetryAsync(workspaceId, billingMonth, stoppingToken);
++                }
++                catch (OperationCanceledException)
++                {
++                    break;
++                }
++                catch (Exception ex)
++                {
++                    _logger.LogError(ex, "Loi xay ra trong vong lap AIQuotaCompensationBackgroundService.");
++                }
++            }
++        }
++
++        private async Task ProcessCompensationWithRetryAsync(int workspaceId, DateOnly billingMonth, CancellationToken token)
++        {
++            int maxRetryAttempts = 5;
++            int delaySeconds = 5;
++
++            for (int attempt = 1; attempt <= maxRetryAttempts; attempt++)
++            {
++                try
++                {
++                    using var scope = _serviceProvider.CreateScope();
++                    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
++
++                    await dbContext.Database.ExecuteSqlInterpolatedAsync($@"
++UPDATE WorkspaceMonthlyUsages
++SET AIQueryCount = CASE WHEN ISNULL(AIQueryCount, 0) > 0 THEN AIQueryCount - 1 ELSE 0 END,
++    UpdatedAt = SYSUTCDATETIME()
++WHERE WorkspaceID = {workspaceId}
++  AND BillingMonth = {billingMonth}");
++
++                    _logger.LogInformation("Da hoan tra quota thanh cong cho Workspace {WorkspaceId} (Lan thu {Attempt}).", workspaceId, attempt);
++                    return;
++                }
++                catch (Exception ex)
++                {
++                    _logger.LogWarning(ex, "Thu lai lan {Attempt} hoan tra quota cho Workspace {WorkspaceId} that bai.", attempt, workspaceId);
++                    if (attempt == maxRetryAttempts)
++                    {
++                        _logger.LogCritical(ex, "CRITICAL: Khong the hoan tra quota cho Workspace {WorkspaceId} sau {MaxAttempts} lan thu. Can su can thiep thu cong.", workspaceId, maxRetryAttempts);
++                    }
++                    else
++                    {
++                        await Task.Delay(TimeSpan.FromSeconds(delaySeconds), token);
++                        delaySeconds *= 2; // Exponential backoff
++                    }
++                }
++            }
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/AIQuotaCompensationQueue.cs b/src/AllocServer/Services/AI Services/AIQuotaCompensationQueue.cs
+new file mode 100644
+index 0000000..3cc2904
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/AIQuotaCompensationQueue.cs	
+@@ -0,0 +1,33 @@
++using System;
++using System.Threading;
++using System.Threading.Channels;
++using System.Threading.Tasks;
++using AllocServer.Interfaces.AI;
++
++namespace AllocServer.Services.AI_Services
++{
++    public class AIQuotaCompensationQueue : IAIQuotaCompensationQueue
++    {
++        private readonly Channel<(int WorkspaceId, DateOnly BillingMonth)> _channel;
++
++        public AIQuotaCompensationQueue()
++        {
++            var options = new UnboundedChannelOptions
++            {
++                SingleReader = true,
++                SingleWriter = false
++            };
++            _channel = Channel.CreateUnbounded<(int WorkspaceId, DateOnly BillingMonth)>(options);
++        }
++
++        public void QueueCompensation(int workspaceId, DateOnly billingMonth)
++        {
++            _channel.Writer.TryWrite((workspaceId, billingMonth));
++        }
++
++        public ValueTask<(int WorkspaceId, DateOnly BillingMonth)> DequeueAsync(CancellationToken cancellationToken)
++        {
++            return _channel.Reader.ReadAsync(cancellationToken);
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/AIToolDispatcher.cs b/src/AllocServer/Services/AI Services/AIToolDispatcher.cs
+new file mode 100644
+index 0000000..99d937c
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/AIToolDispatcher.cs	
+@@ -0,0 +1,68 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Threading.Tasks;
++using AllocServer.Interfaces.AI;
++using AllocServer.Models.AI;
++
++namespace AllocServer.Services.AI_Services
++{
++    public class AIToolDispatcher : IAIToolDispatcher
++    {
++        private readonly IEnumerable<IAIToolHandler> _handlers;
++        private readonly IAIToolSafetyGuard _safetyGuard;
++
++        public AIToolDispatcher(IEnumerable<IAIToolHandler> handlers, IAIToolSafetyGuard safetyGuard)
++        {
++            _handlers = handlers;
++            _safetyGuard = safetyGuard;
++        }
++
++        public async Task<AIToolResult> DispatchAsync(string toolName, Dictionary<string, object> arguments, string? idempotencyKey)
++        {
++            // 1. Chß║íy tß║ºng Safety Guard ─æß╗â kiß╗âm tra ph├ón quyß╗ün, idempotency, loop, v├á cross-field check
++            var guardResult = await _safetyGuard.ValidateExecutionAsync(toolName, arguments, idempotencyKey);
++            
++            if (!guardResult.IsPassed)
++            {
++                return AIToolResult.Failure(
++                    guardResult.StatusCode, 
++                    guardResult.ErrorCode ?? "VALIDATION_FAILED", 
++                    guardResult.ErrorMessage ?? "Kiß╗âm tra an to├án thß║Ñt bß║íi."
++                );
++            }
++
++            // Nß║┐u tr├║ng Idempotency (gß╗ìi lß║íi th├ánh c├┤ng tr╞░ß╗¢c ─æ├│), trß║ú ngay kß║┐t quß║ú c┼⌐
++            if (guardResult.CachedResult is AIToolResult cachedResult)
++            {
++                return cachedResult;
++            }
++
++            // 2. T├¼m Handler ph├╣ hß╗úp
++            var handler = _handlers.FirstOrDefault(h => string.Equals(h.ToolName, toolName, StringComparison.OrdinalIgnoreCase));
++            if (handler == null)
++            {
++                return AIToolResult.Failure(404, "HANDLER_NOT_FOUND", $"Kh├┤ng t├¼m thß║Ñy handler xß╗¡ l├╜ cho c├┤ng cß╗Ñ '{toolName}'.");
++            }
++
++            // 3. Thß╗▒c thi Handler
++            AIToolResult executionResult;
++            try
++            {
++                executionResult = await handler.ExecuteAsync(arguments);
++            }
++            catch (Exception ex)
++            {
++                executionResult = AIToolResult.Failure(500, "EXECUTION_ERROR", $"Lß╗ùi hß╗ç thß╗æng khi thß╗▒c thi c├┤ng cß╗Ñ: {ex.Message}");
++            }
++
++            // 4. L╞░u cache Idempotency nß║┐u thß╗▒c thi th├ánh c├┤ng
++            if (executionResult.IsSuccess && !string.IsNullOrEmpty(idempotencyKey))
++            {
++                await _safetyGuard.CacheSuccessfulResponseAsync(idempotencyKey, executionResult);
++            }
++
++            return executionResult;
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/AIToolSafetyGuard.cs b/src/AllocServer/Services/AI Services/AIToolSafetyGuard.cs
+new file mode 100644
+index 0000000..a78d5d1
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/AIToolSafetyGuard.cs	
+@@ -0,0 +1,370 @@
++using System;
++using System.Collections.Generic;
++using System.Security.Cryptography;
++using System.Text;
++using System.Text.Json;
++using System.Threading.Tasks;
++using AllocServer.Constants.Permissions;
++using AllocServer.Data;
++using AllocServer.Interfaces.AI;
++using AllocServer.Models.AI;
++using Microsoft.EntityFrameworkCore;
++using Microsoft.Extensions.Caching.Distributed;
++using Microsoft.Extensions.DependencyInjection;
++
++namespace AllocServer.Services.AI_Services
++{
++    public class AIToolSafetyGuard : IAIToolSafetyGuard
++    {
++        private readonly IServiceScopeFactory _scopeFactory;
++        private readonly IDistributedCache _cache;
++
++        public AIToolSafetyGuard(IServiceScopeFactory scopeFactory, IDistributedCache cache)
++        {
++            _scopeFactory = scopeFactory;
++            _cache = cache;
++        }
++
++        public async Task<GuardValidationResult> ValidateExecutionAsync(string toolName, Dictionary<string, object> arguments, string? idempotencyKey)
++        {
++            // 1. Kiß╗âm tra Idempotency (Chß╗æng tr├╣ng lß║╖p do lß╗ùi mß║íng)
++            if (!string.IsNullOrEmpty(idempotencyKey))
++            {
++                var cachedData = await _cache.GetStringAsync($"ai-tool-idempotency:{idempotencyKey}");
++                if (!string.IsNullOrEmpty(cachedData))
++                {
++                    try
++                    {
++                        var result = JsonSerializer.Deserialize<AIToolResult>(cachedData);
++                        if (result != null)
++                        {
++                            return GuardValidationResult.HitIdempotency(result);
++                        }
++                    }
++                    catch
++                    {
++                        // Nß║┐u cache hß╗Ång th├¼ cho chß║íy lß║íi
++                    }
++                }
++            }
++
++            // 2. Kiß╗âm tra Whitelist c├┤ng cß╗Ñ
++            if (toolName != "create_project" && toolName != "create_task"
++                && toolName != "get_project_info" && toolName != "get_employee_list" && toolName != "get_employee_detail")
++            {
++                return GuardValidationResult.Fail("UNAUTHORIZED_TOOL", $"C├┤ng cß╗Ñ '{toolName}' kh├┤ng ─æ╞░ß╗úc ph├⌐p thß╗▒c thi th├┤ng qua AI chat.", 403);
++            }
++
++            // 3. Ph├ón t├¡ch tham sß╗æ c╞í bß║ún v├á Throttling (Chß╗æng v├▓ng lß║╖p v├┤ hß║ín cß╗ºa LLM)
++            int userId = 0;
++            int workspaceId = 0;
++            int projectId = 0;
++
++            if (arguments.TryGetValue("userId", out var uIdObj) && int.TryParse(uIdObj?.ToString(), out var uId))
++            {
++                userId = uId;
++            }
++
++            if (arguments.TryGetValue("workspaceId", out var wIdObj) && int.TryParse(wIdObj?.ToString(), out var wId))
++            {
++                workspaceId = wId;
++            }
++
++            if (arguments.TryGetValue("projectId", out var pIdObj) && int.TryParse(pIdObj?.ToString(), out var pId))
++            {
++                projectId = pId;
++            }
++
++            if (userId <= 0)
++            {
++                return GuardValidationResult.Fail("MISSING_USER_ID", "Tham sß╗æ 'userId' kh├┤ng hß╗úp lß╗ç hoß║╖c bß╗ï thiß║┐u.");
++            }
++
++            // Tß║ío m├ú b─âm payload ─æß╗â kiß╗âm tra throttling
++            string payloadJson = JsonSerializer.Serialize(arguments);
++            string payloadHash = ComputeMd5Hash(payloadJson);
++            
++            // Key throttle theo cß║Ñu tr├║c: ai-tool-throttle:{userId}:{workspaceId/projectId}:{toolName}:{hash}
++            int scopeId = toolName == "create_project" ? workspaceId : projectId;
++            string throttleKey = $"ai-tool-throttle:{userId}:{scopeId}:{toolName}:{payloadHash}";
++
++            var existingThrottle = await _cache.GetStringAsync(throttleKey);
++            if (!string.IsNullOrEmpty(existingThrottle))
++            {
++                return GuardValidationResult.Fail("DUPLICATE_CALL_LOOP", "Bß║ín vß╗½a thß╗▒c hiß╗çn h├ánh ─æß╗Öng n├áy rß╗ôi, vui l├▓ng ─æß╗úi 30 gi├óy hoß║╖c sß╗¡a lß║íi tham sß╗æ ─æß╗â tr├ính lß║╖p lß║íi.", 400);
++            }
++
++            // L╞░u dß║Ñu throttle 30 gi├óy ─æß╗â ng─ân LLM lß║╖p lß║íi
++            var throttleOptions = new DistributedCacheEntryOptions
++            {
++                AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30)
++            };
++            await _cache.SetStringAsync(throttleKey, "active", throttleOptions);
++
++            // 4. X├íc thß╗▒c ch├⌐o logic nghiß╗çp vß╗Ñ (Cross-field validation)
++            if (toolName == "create_project")
++            {
++                if (workspaceId <= 0)
++                {
++                    return GuardValidationResult.Fail("MISSING_WORKSPACE_ID", "Tham sß╗æ 'workspaceId' kh├┤ng hß╗úp lß╗ç hoß║╖c bß╗ï thiß║┐u.");
++                }
++
++                // Check ch├⌐o thß╗¥i gian bß║»t ─æß║ºu & kß║┐t th├║c
++                if (arguments.TryGetValue("startDate", out var sDateObj) && arguments.TryGetValue("endDate", out var eDateObj))
++                {
++                    if (DateOnly.TryParse(sDateObj?.ToString(), out var startDate) && DateOnly.TryParse(eDateObj?.ToString(), out var endDate))
++                    {
++                        if (endDate < startDate)
++                        {
++                            return GuardValidationResult.Fail("INVALID_DATES", "Ng├áy kß║┐t th├║c dß╗▒ ├ín kh├┤ng ─æ╞░ß╗úc nhß╗Å h╞ín ng├áy bß║»t ─æß║ºu.");
++                        }
++                    }
++                }
++            }
++            else if (toolName == "create_task")
++            {
++                if (projectId <= 0)
++                {
++                    return GuardValidationResult.Fail("MISSING_PROJECT_ID", "Tham sß╗æ 'projectId' kh├┤ng hß╗úp lß╗ç hoß║╖c bß╗ï thiß║┐u.");
++                }
++
++                // Check ch├⌐o thß╗¥i gian bß║»t ─æß║ºu & kß║┐t th├║c cß╗ºa Task
++                if (arguments.TryGetValue("startDate", out var sDateObj) && arguments.TryGetValue("endDate", out var eDateObj))
++                {
++                    if (DateOnly.TryParse(sDateObj?.ToString(), out var startDate) && DateOnly.TryParse(eDateObj?.ToString(), out var endDate))
++                    {
++                        if (endDate < startDate)
++                        {
++                            return GuardValidationResult.Fail("INVALID_DATES", "Ng├áy kß║┐t th├║c task kh├┤ng ─æ╞░ß╗úc nhß╗Å h╞ín ng├áy bß║»t ─æß║ºu.");
++                        }
++                    }
++                }
++
++                // Check ch├⌐o EstimatedValue vß╗¢i DurationType (V├¡ dß╗Ñ 1 task > 1000 giß╗¥ hoß║╖c > 100 ng├áy l├á phi thß╗▒c tß║┐)
++                string durationType = string.Empty;
++                decimal estimatedValue = 0;
++
++                if (arguments.TryGetValue("durationType", out var dtObj))
++                {
++                    durationType = dtObj?.ToString() ?? string.Empty;
++                }
++                if (arguments.TryGetValue("estimatedValue", out var evObj) && decimal.TryParse(evObj?.ToString(), out var ev))
++                {
++                    estimatedValue = ev;
++                }
++
++                if (string.Equals(durationType, "Hour", StringComparison.OrdinalIgnoreCase) && estimatedValue > 1000m)
++                {
++                    return GuardValidationResult.Fail("UNREALISTIC_ESTIMATE", "Thß╗¥i l╞░ß╗úng thß╗▒c hiß╗çn nhiß╗çm vß╗Ñ (EstimatedValue) qu├í lß╗¢n cho ─æ╞ín vß╗ï ─æ├ú chß╗ìn (Hour > 1000h). Vui l├▓ng chia nhß╗Å nhiß╗çm vß╗Ñ hoß║╖c ─æiß╗ün con sß╗æ thß╗▒c tß║┐.");
++                }
++                if (string.Equals(durationType, "Day", StringComparison.OrdinalIgnoreCase) && estimatedValue > 100m)
++                {
++                    return GuardValidationResult.Fail("UNREALISTIC_ESTIMATE", "Thß╗¥i l╞░ß╗úng thß╗▒c hiß╗çn nhiß╗çm vß╗Ñ (EstimatedValue) qu├í lß╗¢n cho ─æ╞ín vß╗ï ─æ├ú chß╗ìn (Day > 100 ng├áy). Vui l├▓ng chia nhß╗Å nhiß╗çm vß╗Ñ hoß║╖c ─æiß╗ün con sß╗æ thß╗▒c tß║┐.");
++                }
++            }
++
++            // 5. X├íc thß╗▒c quyß╗ün nghiß╗çp vß╗Ñ (Business Rule Authorization)
++            using (var scope = _scopeFactory.CreateScope())
++            {
++                var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
++
++                if (toolName == "create_project")
++                {
++                    // Chß╗ë Owner mß╗¢i ─æ╞░ß╗úc quyß╗ün tß║ío Project trong Workspace
++                    var membership = await dbContext.WorkspaceMembers
++                        .Include(m => m.WorkspaceRole)
++                        .FirstOrDefaultAsync(m =>
++                            m.WorkspaceID == workspaceId
++                            && m.Resource.AccountID == userId
++                            && m.Status == "Active"
++                            && !m.Workspace.IsDeleted
++                            && !m.Resource.IsDeleted);
++
++                    if (membership == null || !string.Equals(membership.WorkspaceRole.RoleName, "Owner", StringComparison.OrdinalIgnoreCase))
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Chß╗ë Owner mß╗¢i c├│ quyß╗ün tß║ío dß╗▒ ├ín mß╗¢i trong Workspace n├áy.", 403);
++                    }
++                }
++                else if (toolName == "create_task")
++                {
++                    // Lß║Ñy Project ─æß╗â biß║┐t WorkspaceID
++                    var project = await dbContext.Projects
++                        .FirstOrDefaultAsync(p => p.ProjectID == projectId && !p.IsDeleted);
++
++                    if (project == null)
++                    {
++                        return GuardValidationResult.Fail("PROJECT_NOT_FOUND", "Kh├┤ng t├¼m thß║Ñy dß╗▒ ├ín ─æ╞░ß╗úc chß╗ë ─æß╗ïnh hoß║╖c ─æ├ú bß╗ï x├│a.", 404);
++                    }
++
++                    // User phß║úi l├á th├ánh vi├¬n active trong workspace cß╗ºa dß╗▒ ├ín v├á c├│ quyß╗ün task:create hoß║╖c l├á Owner
++                    var membership = await dbContext.WorkspaceMembers
++                        .Include(m => m.WorkspaceRole)
++                        .FirstOrDefaultAsync(m =>
++                            m.WorkspaceID == project.WorkspaceID
++                            && m.Resource.AccountID == userId
++                            && m.Status == "Active"
++                            && !m.Resource.IsDeleted);
++
++                    if (membership == null)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng phß║úi l├á th├ánh vi├¬n hoß║ít ─æß╗Öng trong Workspace cß╗ºa dß╗▒ ├ín n├áy.", 403);
++                    }
++
++                    var isOwner = string.Equals(membership.WorkspaceRole.RoleName, "Owner", StringComparison.OrdinalIgnoreCase);
++                    var hasTaskCreatePermission = await dbContext.RolePermissions
++                        .AnyAsync(rp =>
++                            rp.WorkspaceRoleID == membership.WorkspaceRoleID
++                            && rp.PermissionID == TaskPermissionIds.Create);
++
++                    if (!isOwner && !hasTaskCreatePermission)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng c├│ quyß╗ün tß║ío task mß╗¢i trong dß╗▒ ├ín n├áy.", 403);
++                    }
++                }
++                else if (toolName == "get_project_info")
++                {
++                    // Phß║úi l├á th├ánh vi├¬n hoß║ít ─æß╗Öng trong Workspace chß╗⌐a dß╗▒ ├ín v├á c├│ quyß╗ün ai:ask hoß║╖c ai:view
++                    var project = await dbContext.Projects
++                        .AsNoTracking()
++                        .FirstOrDefaultAsync(p => p.ProjectID == projectId && !p.IsDeleted);
++
++                    if (project == null)
++                    {
++                        return GuardValidationResult.Fail("PROJECT_NOT_FOUND", "Kh├┤ng t├¼m thß║Ñy dß╗▒ ├ín ─æ╞░ß╗úc chß╗ë ─æß╗ïnh hoß║╖c ─æ├ú bß╗ï x├│a.", 404);
++                    }
++
++                    var membership = await dbContext.WorkspaceMembers
++                        .Include(m => m.WorkspaceRole)
++                        .FirstOrDefaultAsync(m =>
++                            m.WorkspaceID == project.WorkspaceID
++                            && m.Resource.AccountID == userId
++                            && m.Status == "Active"
++                            && !m.Resource.IsDeleted);
++
++                    if (membership == null)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng phß║úi l├á th├ánh vi├¬n hoß║ít ─æß╗Öng trong Workspace chß╗⌐a dß╗▒ ├ín n├áy.", 403);
++                    }
++
++                    var isOwner = string.Equals(membership.WorkspaceRole.RoleName, "Owner", StringComparison.OrdinalIgnoreCase);
++                    var hasAiViewPermission = await dbContext.RolePermissions
++                        .AnyAsync(rp =>
++                            rp.WorkspaceRoleID == membership.WorkspaceRoleID
++                            && (rp.PermissionID == AIPermissionIds.Ask || rp.PermissionID == AIPermissionIds.View));
++
++                    if (!isOwner && !hasAiViewPermission)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng c├│ quyß╗ün truy cß║¡p dß╗» liß╗çu ph├ón t├¡ch dß╗▒ ├ín trong Workspace n├áy.", 403);
++                    }
++                }
++                else if (toolName == "get_employee_list")
++                {
++                    // Phß║úi l├á th├ánh vi├¬n hoß║ít ─æß╗Öng trong Workspace v├á c├│ quyß╗ün ai:ask hoß║╖c ai:view
++                    if (workspaceId <= 0 && projectId > 0)
++                    {
++                        var project = await dbContext.Projects
++                            .AsNoTracking()
++                            .FirstOrDefaultAsync(p => p.ProjectID == projectId && !p.IsDeleted);
++                        if (project != null)
++                        {
++                            workspaceId = project.WorkspaceID;
++                        }
++                    }
++
++                    if (workspaceId <= 0)
++                    {
++                        return GuardValidationResult.Fail("MISSING_WORKSPACE_CONTEXT", "Bß║»t buß╗Öc truyß╗ün th├┤ng tin workspaceId hoß║╖c projectId.");
++                    }
++
++                    var membership = await dbContext.WorkspaceMembers
++                        .Include(m => m.WorkspaceRole)
++                        .FirstOrDefaultAsync(m =>
++                            m.WorkspaceID == workspaceId
++                            && m.Resource.AccountID == userId
++                            && m.Status == "Active"
++                            && !m.Resource.IsDeleted);
++
++                    if (membership == null)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng phß║úi l├á th├ánh vi├¬n hoß║ít ─æß╗Öng trong Workspace n├áy.", 403);
++                    }
++
++                    var isOwner = string.Equals(membership.WorkspaceRole.RoleName, "Owner", StringComparison.OrdinalIgnoreCase);
++                    var hasAiViewPermission = await dbContext.RolePermissions
++                        .AnyAsync(rp =>
++                            rp.WorkspaceRoleID == membership.WorkspaceRoleID
++                            && (rp.PermissionID == AIPermissionIds.Ask || rp.PermissionID == AIPermissionIds.View));
++
++                    if (!isOwner && !hasAiViewPermission)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng c├│ quyß╗ün truy cß║¡p th├┤ng tin th├ánh vi├¬n dß╗▒ ├ín trong Workspace n├áy.", 403);
++                    }
++                }
++                else if (toolName == "get_employee_detail")
++                {
++                    // Phß║úi l├á th├ánh vi├¬n hoß║ít ─æß╗Öng trong Workspace
++                    // V├Ç bß║»t buß╗Öc c├│ quyß╗ün xem hß╗ô s╞í nh├ón vi├¬n (member_profiles:view) hoß║╖c l├á Owner
++                    if (workspaceId <= 0)
++                    {
++                        return GuardValidationResult.Fail("MISSING_WORKSPACE_ID", "Tham sß╗æ 'workspaceId' kh├┤ng hß╗úp lß╗ç hoß║╖c bß╗ï thiß║┐u.");
++                    }
++
++                    var membership = await dbContext.WorkspaceMembers
++                        .Include(m => m.WorkspaceRole)
++                        .FirstOrDefaultAsync(m =>
++                            m.WorkspaceID == workspaceId
++                            && m.Resource.AccountID == userId
++                            && m.Status == "Active"
++                            && !m.Resource.IsDeleted);
++
++                    if (membership == null)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng phß║úi l├á th├ánh vi├¬n hoß║ít ─æß╗Öng trong Workspace n├áy.", 403);
++                    }
++
++                    var isOwner = string.Equals(membership.WorkspaceRole.RoleName, "Owner", StringComparison.OrdinalIgnoreCase);
++                    var hasProfileViewPermission = await dbContext.RolePermissions
++                        .AnyAsync(rp =>
++                            rp.WorkspaceRoleID == membership.WorkspaceRoleID
++                            && rp.PermissionID == MemberProfilePermissionIds.View);
++
++                    if (!isOwner && !hasProfileViewPermission)
++                    {
++                        return GuardValidationResult.Fail("FORBIDDEN", "Bß║ín kh├┤ng c├│ quyß╗ün xem th├┤ng tin chi tiß║┐t hß╗ô s╞í nh├ón vi├¬n nhß║íy cß║úm.", 403);
++                    }
++                }
++            }
++
++            return GuardValidationResult.Pass();
++        }
++
++        public async Task CacheSuccessfulResponseAsync(string idempotencyKey, AIToolResult result)
++        {
++            if (string.IsNullOrEmpty(idempotencyKey)) return;
++
++            var cacheOptions = new DistributedCacheEntryOptions
++            {
++                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15) // TTL 15 ph├║t
++            };
++
++            var dataString = JsonSerializer.Serialize(result);
++            await _cache.SetStringAsync($"ai-tool-idempotency:{idempotencyKey}", dataString, cacheOptions);
++        }
++
++        private static string ComputeMd5Hash(string input)
++        {
++            using (var md5 = MD5.Create())
++            {
++                byte[] inputBytes = Encoding.UTF8.GetBytes(input);
++                byte[] hashBytes = md5.ComputeHash(inputBytes);
++
++                var sb = new StringBuilder();
++                foreach (var b in hashBytes)
++                {
++                    sb.Append(b.ToString("x2"));
++                }
++                return sb.ToString();
++            }
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/Handlers/CreateProjectToolHandler.cs b/src/AllocServer/Services/AI Services/Handlers/CreateProjectToolHandler.cs
+new file mode 100644
+index 0000000..0fa2bf6
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/Handlers/CreateProjectToolHandler.cs	
+@@ -0,0 +1,80 @@
++using System;
++using System.Collections.Generic;
++using System.Text.Json;
++using System.Threading.Tasks;
++using AllocServer.DTOs.AIChat;
++using AllocServer.DTOs.Workspaces;
++using AllocServer.Interfaces.AI;
++using AllocServer.Interfaces.Workspaces;
++using AllocServer.Models.AI;
++using Microsoft.Data.SqlClient;
++using Microsoft.EntityFrameworkCore;
++
++namespace AllocServer.Services.AI_Services.Handlers
++{
++    public class CreateProjectToolHandler : IAIToolHandler
++    {
++        private readonly IWorkspaceService _workspaceService;
++
++        public CreateProjectToolHandler(IWorkspaceService workspaceService)
++        {
++            _workspaceService = workspaceService;
++        }
++
++        public string ToolName => "create_project";
++
++        public async Task<AIToolResult> ExecuteAsync(Dictionary<string, object> arguments)
++        {
++            CreateProjectToolPayload payload;
++            try
++            {
++                var json = JsonSerializer.Serialize(arguments);
++                payload = JsonSerializer.Deserialize<CreateProjectToolPayload>(json) 
++                          ?? throw new ArgumentException("Kh├┤ng thß╗â parse arguments sang CreateProjectToolPayload.");
++            }
++            catch (Exception ex)
++            {
++                return AIToolResult.Failure(400, "INVALID_PAYLOAD", $"Payload kh├┤ng hß╗úp lß╗ç: {ex.Message}");
++            }
++
++            var request = new CreateProjectRequest
++            {
++                ProjectName = payload.ProjectName,
++                ExpectedBudget = payload.ExpectedBudget,
++                StartDate = payload.StartDate,
++                EndDate = payload.EndDate,
++                OriginalCurrencyCode = payload.OriginalCurrencyCode,
++                ExchangeRateToUSD = payload.ExchangeRateToUSD,
++                Methodology = payload.Methodology
++            };
++
++            try
++            {
++                var result = await _workspaceService.CreateProjectAsync(payload.UserId, payload.WorkspaceId, request);
++                return AIToolResult.Success(result);
++            }
++            catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx && (sqlEx.Number == 2601 || sqlEx.Number == 2627))
++            {
++                return AIToolResult.Failure(400, "DUPLICATE_NAME", 
++                    $"T├¬n dß╗▒ ├ín '{payload.ProjectName}' ─æ├ú ─æ╞░ß╗úc sß╗¡ dß╗Ñng bß╗ƒi mß╗Öt dß╗▒ ├ín kh├íc ─æang hoß║ít ─æß╗Öng trong Workspace n├áy. Vui l├▓ng chß╗ìn mß╗Öt t├¬n kh├íc cß╗Ñ thß╗â h╞ín.");
++            }
++            catch (InvalidOperationException ex) when (ex.Message.Contains("AlreadyExists") || ex.Message.Contains("Unique") || ex.Message.Contains("Duplicate"))
++            {
++                return AIToolResult.Failure(400, "DUPLICATE_NAME", 
++                    $"T├¬n dß╗▒ ├ín '{payload.ProjectName}' ─æ├ú ─æ╞░ß╗úc sß╗¡ dß╗Ñng bß╗ƒi mß╗Öt dß╗▒ ├ín kh├íc ─æang hoß║ít ─æß╗Öng trong Workspace n├áy. Vui l├▓ng chß╗ìn mß╗Öt t├¬n kh├íc cß╗Ñ thß╗â h╞ín.");
++            }
++            catch (ArgumentException ex)
++            {
++                return AIToolResult.Failure(400, "INVALID_ARGUMENT", ex.Message);
++            }
++            catch (UnauthorizedAccessException ex)
++            {
++                return AIToolResult.Failure(403, "FORBIDDEN", ex.Message);
++            }
++            catch (Exception ex)
++            {
++                return AIToolResult.Failure(500, "INTERNAL_ERROR", $"Lß╗ùi hß╗ç thß╗æng khi tß║ío dß╗▒ ├ín: {ex.Message}");
++            }
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/Handlers/CreateTaskToolHandler.cs b/src/AllocServer/Services/AI Services/Handlers/CreateTaskToolHandler.cs
+new file mode 100644
+index 0000000..775bd15
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/Handlers/CreateTaskToolHandler.cs	
+@@ -0,0 +1,95 @@
++using System;
++using System.Collections.Generic;
++using System.Text.Json;
++using System.Threading.Tasks;
++using AllocServer.Data;
++using AllocServer.DTOs.AIChat;
++using AllocServer.DTOs.Tasks;
++using AllocServer.Interfaces.AI;
++using AllocServer.Interfaces.Tasks;
++using AllocServer.Models.AI;
++using Microsoft.Data.SqlClient;
++using Microsoft.EntityFrameworkCore;
++
++namespace AllocServer.Services.AI_Services.Handlers
++{
++    public class CreateTaskToolHandler : IAIToolHandler
++    {
++        private readonly ITaskService _taskService;
++        private readonly ApplicationDbContext _context;
++
++        public CreateTaskToolHandler(ITaskService taskService, ApplicationDbContext context)
++        {
++            _taskService = taskService;
++            _context = context;
++        }
++
++        public string ToolName => "create_task";
++
++        public async Task<AIToolResult> ExecuteAsync(Dictionary<string, object> arguments)
++        {
++            CreateTaskToolPayload payload;
++            try
++            {
++                var json = JsonSerializer.Serialize(arguments);
++                payload = JsonSerializer.Deserialize<CreateTaskToolPayload>(json) 
++                          ?? throw new ArgumentException("Kh├┤ng thß╗â parse arguments sang CreateTaskToolPayload.");
++            }
++            catch (Exception ex)
++            {
++                return AIToolResult.Failure(400, "INVALID_PAYLOAD", $"Payload kh├┤ng hß╗úp lß╗ç: {ex.Message}");
++            }
++
++            // T├¼m Project
++            var project = await _context.Projects
++                .FirstOrDefaultAsync(p => p.ProjectID == payload.ProjectId && !p.IsDeleted);
++
++            if (project == null)
++            {
++                return AIToolResult.Failure(404, "PROJECT_NOT_FOUND", $"Kh├┤ng t├¼m thß║Ñy dß╗▒ ├ín c├│ ID {payload.ProjectId} hoß║╖c dß╗▒ ├ín ─æ├ú bß╗ï x├│a.");
++            }
++
++            var request = new CreateProjectTaskRequest
++            {
++                TaskName = payload.TaskName,
++                EstimatedValue = payload.EstimatedValue,
++                DurationType = payload.DurationType,
++                StartDate = payload.StartDate,
++                EndDate = payload.EndDate,
++                Status = payload.Status,
++                Complexity = payload.Complexity,
++                RequiredSkillLevel = payload.RequiredSkillLevel,
++                Priority = payload.Priority,
++                ExpectedTeamSize = payload.ExpectedTeamSize
++            };
++
++            try
++            {
++                var result = await _taskService.CreateProjectTaskAsync(payload.UserId, project, request);
++                return AIToolResult.Success(result);
++            }
++            catch (DbUpdateException ex) when (ex.InnerException is SqlException sqlEx && (sqlEx.Number == 2601 || sqlEx.Number == 2627))
++            {
++                return AIToolResult.Failure(400, "DUPLICATE_NAME", 
++                    $"T├¬n nhiß╗çm vß╗Ñ '{payload.TaskName}' ─æ├ú ─æ╞░ß╗úc sß╗¡ dß╗Ñng bß╗ƒi mß╗Öt nhiß╗çm vß╗Ñ kh├íc ─æang hoß║ít ─æß╗Öng trong dß╗▒ ├ín n├áy. Vui l├▓ng chß╗ìn mß╗Öt t├¬n kh├íc cß╗Ñ thß╗â h╞ín.");
++            }
++            catch (InvalidOperationException ex) when (ex.Message.Contains("AlreadyExists") || ex.Message.Contains("Unique") || ex.Message.Contains("Duplicate"))
++            {
++                return AIToolResult.Failure(400, "DUPLICATE_NAME", 
++                    $"T├¬n nhiß╗çm vß╗Ñ '{payload.TaskName}' ─æ├ú ─æ╞░ß╗úc sß╗¡ dß╗Ñng bß╗ƒi mß╗Öt nhiß╗çm vß╗Ñ kh├íc ─æang hoß║ít ─æß╗Öng trong dß╗▒ ├ín n├áy. Vui l├▓ng chß╗ìn mß╗Öt t├¬n kh├íc cß╗Ñ thß╗â h╞ín.");
++            }
++            catch (ArgumentException ex)
++            {
++                return AIToolResult.Failure(400, "INVALID_ARGUMENT", ex.Message);
++            }
++            catch (UnauthorizedAccessException ex)
++            {
++                return AIToolResult.Failure(403, "FORBIDDEN", ex.Message);
++            }
++            catch (Exception ex)
++            {
++                return AIToolResult.Failure(500, "INTERNAL_ERROR", $"Lß╗ùi hß╗ç thß╗æng khi tß║ío task: {ex.Message}");
++            }
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/Handlers/GetEmployeeDetailToolHandler.cs b/src/AllocServer/Services/AI Services/Handlers/GetEmployeeDetailToolHandler.cs
+new file mode 100644
+index 0000000..4ace672
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/Handlers/GetEmployeeDetailToolHandler.cs	
+@@ -0,0 +1,136 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Text.Json;
++using System.Threading.Tasks;
++using AllocServer.Data;
++using AllocServer.DTOs.AIChat;
++using AllocServer.Interfaces.AI;
++using AllocServer.Models.AI;
++using Microsoft.EntityFrameworkCore;
++
++namespace AllocServer.Services.AI_Services.Handlers
++{
++    public class GetEmployeeDetailToolHandler : IAIToolHandler
++    {
++        private readonly ApplicationDbContext _context;
++
++        public GetEmployeeDetailToolHandler(ApplicationDbContext context)
++        {
++            _context = context;
++        }
++
++        public string ToolName => "get_employee_detail";
++
++        public async Task<AIToolResult> ExecuteAsync(Dictionary<string, object> arguments)
++        {
++            GetEmployeeDetailToolPayload payload;
++            try
++            {
++                var json = JsonSerializer.Serialize(arguments);
++                payload = JsonSerializer.Deserialize<GetEmployeeDetailToolPayload>(json)
++                          ?? throw new ArgumentException("Kh├┤ng thß╗â parse arguments sang GetEmployeeDetailToolPayload.");
++            }
++            catch (Exception ex)
++            {
++                return AIToolResult.Failure(400, "INVALID_PAYLOAD", $"Payload kh├┤ng hß╗úp lß╗ç: {ex.Message}");
++            }
++
++            var memberQuery = _context.WorkspaceMembers
++                .Include(m => m.Resource)
++                .Include(m => m.WorkspaceRole)
++                .Where(m => m.WorkspaceID == payload.WorkspaceId && m.Status == "Active" && !m.Resource.IsDeleted);
++
++            if (payload.WorkspaceMemberId.HasValue && payload.WorkspaceMemberId.Value > 0)
++            {
++                memberQuery = memberQuery.Where(m => m.WorkspaceMemberID == payload.WorkspaceMemberId.Value);
++            }
++            else if (!string.IsNullOrEmpty(payload.EmployeeCode))
++            {
++                memberQuery = memberQuery.Where(m => m.EmployeeCode == payload.EmployeeCode);
++            }
++            else
++            {
++                return AIToolResult.Failure(400, "MISSING_MEMBER_IDENTIFIER", "Bß║»t buß╗Öc truyß╗ün workspaceMemberId hoß║╖c employeeCode.");
++            }
++
++            var member = await memberQuery.FirstOrDefaultAsync();
++            if (member == null)
++            {
++                return AIToolResult.Failure(404, "MEMBER_NOT_FOUND", "Kh├┤ng t├¼m thß║Ñy nh├ón sß╗▒ ─æang hoß║ít ─æß╗Öng trong workspace n├áy.");
++            }
++
++            // Lß║Ñy profile ─æ├ính gi├í HR (Experience, Skills scores, PerformanceRating...)
++            var profile = await _context.WorkspaceMemberProfiles
++                .AsNoTracking()
++                .FirstOrDefaultAsync(p => p.WorkspaceMemberID == member.WorkspaceMemberID && !p.IsDeleted);
++
++            // Lß║Ñy danh s├ích kß╗╣ n─âng chuy├¬n m├┤n
++            var skills = await _context.ResourceSkills
++                .AsNoTracking()
++                .Include(rs => rs.Skill)
++                .Where(rs => rs.ResourceID == member.ResourceID && !rs.Skill.IsDeleted)
++                .Select(rs => new
++                {
++                    skillName = rs.Skill.SkillName,
++                    level = rs.Level
++                })
++                .ToListAsync();
++
++            // Khß╗æi l╞░ß╗úng c├┤ng viß╗çc hiß╗çn tß║íi (tß╗½ View vw_MemberCurrentWorkload)
++            var workload = await _context.MemberCurrentWorkloads
++                .AsNoTracking()
++                .FirstOrDefaultAsync(w => w.WorkspaceMemberID == member.WorkspaceMemberID);
++
++            // Hiß╗çu suß║Ñt lß╗ïch sß╗¡ (tß╗½ View vw_MemberHistoricalPerformance - PreviousTaskSuccessRate c├│ dß║íng nullable)
++            var performance = await _context.MemberHistoricalPerformances
++                .AsNoTracking()
++                .FirstOrDefaultAsync(p => p.WorkspaceMemberID == member.WorkspaceMemberID);
++
++            var result = new
++            {
++                workspaceMemberId = member.WorkspaceMemberID,
++                employeeCode = member.EmployeeCode,
++                fullName = member.Resource.FullName,
++                phoneNumber = member.Resource.PhoneNumber,
++                avatarUrl = member.Resource.AvatarURL,
++                timezone = member.Resource.Timezone,
++                roleName = member.WorkspaceRole.RoleName,
++                joinedAt = member.JoinedAt.ToString("yyyy-MM-dd"),
++                
++                // Hß╗ô s╞í n─âng lß╗▒c HR (─É├ú ─æ╞░ß╗úc SafetyGuard x├íc thß╗▒c quyß╗ün xem)
++                experienceYears = profile?.ExperienceYears ?? 0,
++                educationLevel = profile?.EducationLevel,
++                technicalSkillScore = profile?.TechnicalSkillScore ?? 0,
++                communicationScore = profile?.CommunicationScore ?? 0,
++                leadershipScore = profile?.LeadershipScore ?? 0,
++                problemSolvingScore = profile?.ProblemSolvingScore ?? 0,
++                avgSoftSkillScore = profile?.AvgSoftSkillScore ?? 0,
++                attendanceRate = profile?.AttendanceRate ?? 100,
++                conflictRate = profile?.ConflictRate ?? 0,
++                performanceRating = profile?.PerformanceRating ?? "Average",
++                lastEvaluatedAt = profile?.LastEvaluatedAt.ToString("yyyy-MM-dd"),
++
++                // Kß╗╣ n─âng chi tiß║┐t
++                skills = skills,
++
++                // Khß╗æi l╞░ß╗úng c├┤ng viß╗çc
++                currentWorkload = new
++                {
++                    activeTaskCount = workload?.ActiveTaskCount ?? 0,
++                    currentWorkloadValue = workload?.CurrentWorkloadValue ?? 0
++                },
++
++                // Thß╗æng k├¬ lß╗ïch sß╗¡
++                historicalPerformance = new
++                {
++                    totalCompletedTasks = performance?.TotalCompletedTasks ?? 0,
++                    previousTaskSuccessRate = performance?.PreviousTaskSuccessRate,
++                    efficiencyRatio = performance?.EfficiencyRatio
++                }
++            };
++
++            return AIToolResult.Success(result);
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/Handlers/GetEmployeeListToolHandler.cs b/src/AllocServer/Services/AI Services/Handlers/GetEmployeeListToolHandler.cs
+new file mode 100644
+index 0000000..ce8bfa9
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/Handlers/GetEmployeeListToolHandler.cs	
+@@ -0,0 +1,80 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Text.Json;
++using System.Threading.Tasks;
++using AllocServer.Data;
++using AllocServer.DTOs.AIChat;
++using AllocServer.Interfaces.AI;
++using AllocServer.Models.AI;
++using Microsoft.EntityFrameworkCore;
++
++namespace AllocServer.Services.AI_Services.Handlers
++{
++    public class GetEmployeeListToolHandler : IAIToolHandler
++    {
++        private readonly ApplicationDbContext _context;
++
++        public GetEmployeeListToolHandler(ApplicationDbContext context)
++        {
++            _context = context;
++        }
++
++        public string ToolName => "get_employee_list";
++
++        public async Task<AIToolResult> ExecuteAsync(Dictionary<string, object> arguments)
++        {
++            GetEmployeeListToolPayload payload;
++            try
++            {
++                var json = JsonSerializer.Serialize(arguments);
++                payload = JsonSerializer.Deserialize<GetEmployeeListToolPayload>(json)
++                          ?? throw new ArgumentException("Kh├┤ng thß╗â parse arguments sang GetEmployeeListToolPayload.");
++            }
++            catch (Exception ex)
++            {
++                return AIToolResult.Failure(400, "INVALID_PAYLOAD", $"Payload kh├┤ng hß╗úp lß╗ç: {ex.Message}");
++            }
++
++            int resolvedWorkspaceId = 0;
++            if (payload.WorkspaceId.HasValue && payload.WorkspaceId.Value > 0)
++            {
++                resolvedWorkspaceId = payload.WorkspaceId.Value;
++            }
++            else if (payload.ProjectId.HasValue && payload.ProjectId.Value > 0)
++            {
++                var project = await _context.Projects
++                    .AsNoTracking()
++                    .FirstOrDefaultAsync(p => p.ProjectID == payload.ProjectId.Value && !p.IsDeleted);
++                if (project != null)
++                {
++                    resolvedWorkspaceId = project.WorkspaceID;
++                }
++            }
++
++            if (resolvedWorkspaceId <= 0)
++            {
++                return AIToolResult.Failure(400, "MISSING_WORKSPACE_CONTEXT", "Bß║»t buß╗Öc phß║úi truyß╗ün workspaceId hoß║╖c projectId hß╗úp lß╗ç.");
++            }
++
++            var members = await _context.WorkspaceMembers
++                .AsNoTracking()
++                .Include(m => m.Resource)
++                .Include(m => m.WorkspaceRole)
++                .Where(m => m.WorkspaceID == resolvedWorkspaceId 
++                            && m.Status == "Active" 
++                            && !m.Resource.IsDeleted)
++                .Select(m => new
++                {
++                    workspaceMemberId = m.WorkspaceMemberID,
++                    employeeCode = m.EmployeeCode,
++                    fullName = m.Resource.FullName,
++                    roleName = m.WorkspaceRole.RoleName,
++                    joinedAt = m.JoinedAt.ToString("yyyy-MM-dd HH:mm:ss")
++                })
++                .ToListAsync();
++
++            return AIToolResult.Success(new { workspaceId = resolvedWorkspaceId, employees = members });
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/Handlers/GetProjectInfoToolHandler.cs b/src/AllocServer/Services/AI Services/Handlers/GetProjectInfoToolHandler.cs
+new file mode 100644
+index 0000000..89ab11d
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/Handlers/GetProjectInfoToolHandler.cs	
+@@ -0,0 +1,86 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Text.Json;
++using System.Threading.Tasks;
++using AllocServer.Data;
++using AllocServer.DTOs.AIChat;
++using AllocServer.Interfaces.AI;
++using AllocServer.Models.AI;
++using Microsoft.EntityFrameworkCore;
++
++namespace AllocServer.Services.AI_Services.Handlers
++{
++    public class GetProjectInfoToolHandler : IAIToolHandler
++    {
++        private readonly ApplicationDbContext _context;
++
++        public GetProjectInfoToolHandler(ApplicationDbContext context)
++        {
++            _context = context;
++        }
++
++        public string ToolName => "get_project_info";
++
++        public async Task<AIToolResult> ExecuteAsync(Dictionary<string, object> arguments)
++        {
++            GetProjectInfoToolPayload payload;
++            try
++            {
++                var json = JsonSerializer.Serialize(arguments);
++                payload = JsonSerializer.Deserialize<GetProjectInfoToolPayload>(json)
++                          ?? throw new ArgumentException("Kh├┤ng thß╗â parse arguments sang GetProjectInfoToolPayload.");
++            }
++            catch (Exception ex)
++            {
++                return AIToolResult.Failure(400, "INVALID_PAYLOAD", $"Payload kh├┤ng hß╗úp lß╗ç: {ex.Message}");
++            }
++
++            // Truy vß║Ñn trß╗▒c tiß║┐p tß╗½ View vw_ProjectRiskFeatures ─æ├ú ─æ╞░ß╗úc tß╗æi ╞░u h├│a ß╗ƒ tß║ºng DB
++            var projectFeatures = await _context.ProjectRiskFeatures
++                .AsNoTracking()
++                .FirstOrDefaultAsync(p => p.ProjectID == payload.ProjectId);
++
++            if (projectFeatures == null)
++            {
++                return AIToolResult.Failure(404, "PROJECT_NOT_FOUND", $"Kh├┤ng t├¼m thß║Ñy dß╗▒ ├ín c├│ ID {payload.ProjectId} hoß║╖c dß╗▒ ├ín ─æ├ú bß╗ï x├│a.");
++            }
++
++            var project = await _context.Projects
++                .AsNoTracking()
++                .FirstAsync(p => p.ProjectID == payload.ProjectId);
++
++            // Truy vß║Ñn nhanh c├íc task ─æß╗â ─æß║┐m ph├ón phß╗æi trß║íng th├íi (nß║┐u rß╗ùng sß║╜ trß║ú vß╗ü Dictionary rß╗ùng {})
++            var taskStatusStats = await _context.ProjectTasks
++                .AsNoTracking()
++                .Where(t => t.ProjectID == payload.ProjectId && !t.IsDeleted)
++                .GroupBy(t => t.Status)
++                .Select(g => new { Status = g.Key, Count = g.Count() })
++                .ToDictionaryAsync(x => x.Status, x => x.Count);
++
++            var result = new
++            {
++                projectId = projectFeatures.ProjectID,
++                workspaceId = project.WorkspaceID,
++                projectName = projectFeatures.Project_Name,
++                expectedBudget = projectFeatures.Expected_Budget,
++                totalRevenue = project.TotalRevenue,
++                startDate = project.StartDate.ToString("yyyy-MM-dd"),
++                endDate = project.EndDate.ToString("yyyy-MM-dd"),
++                status = project.Status,
++                methodology = projectFeatures.Methodology_Used,
++                originalCurrencyCode = project.OriginalCurrencyCode,
++                exchangeRateToUSD = project.ExchangeRateToUSD,
++                totalTasksCount = projectFeatures.Total_Tasks,
++                tasksByStatus = taskStatusStats,
++                teamSize = projectFeatures.Team_Size,
++                averageTeamSkillLevel = projectFeatures.Avg_Team_Skill_Level,
++                rawComplexityScore = projectFeatures.Raw_Complexity_Score,
++                budgetUtilizationRate = projectFeatures.Budget_Utilization_Rate,
++                overallRiskScore = projectFeatures.Overall_Risk_Score
++            };
++
++            return AIToolResult.Success(result);
++        }
++    }
++}
+diff --git a/src/AllocServer/Services/AI Services/PythonChatService.cs b/src/AllocServer/Services/AI Services/PythonChatService.cs
+new file mode 100644
+index 0000000..3de27a8
+--- /dev/null
++++ b/src/AllocServer/Services/AI Services/PythonChatService.cs	
+@@ -0,0 +1,292 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Net;
++using System.Net.Http;
++using System.Net.Http.Json;
++using System.Threading;
++using System.Threading.Tasks;
++using AllocServer.Constants.Permissions;
++using AllocServer.Data;
++using AllocServer.DTOs.AIChat;
++using AllocServer.Exceptions;
++using AllocServer.Interfaces;
++using AllocServer.Interfaces.AI;
++using Microsoft.EntityFrameworkCore;
++using Microsoft.Extensions.Configuration;
++
++namespace AllocServer.Services.AI_Services
++{
++    public class PythonChatService : IPythonChatService
++    {
++        private const string AIChatQuotaFeatureCode = "AI_CHAT_QUOTA";
++
++        private readonly HttpClient _httpClient;
++        private readonly HttpClient _llmClient;
++        private readonly ApplicationDbContext _context;
++        private readonly IFeatureQuotaService _featureQuotaService;
++        private readonly IConfiguration _configuration;
++        private readonly IAIQuotaCompensationQueue _quotaCompensationQueue;
++
++        public PythonChatService(
++            IHttpClientFactory httpClientFactory,
++            ApplicationDbContext context,
++            IFeatureQuotaService featureQuotaService,
++            IConfiguration configuration,
++            IAIQuotaCompensationQueue quotaCompensationQueue)
++        {
++            _httpClient = httpClientFactory.CreateClient("PythonAIClient");
++            _llmClient = httpClientFactory.CreateClient("PythonLLMClient");
++            _context = context;
++            _featureQuotaService = featureQuotaService;
++            _configuration = configuration;
++            _quotaCompensationQueue = quotaCompensationQueue;
++        }
++
++        public async Task<PythonConversationsResponse> GetConversationsAsync(string userId, int limit, int skip)
++        {
++            var url = $"internal/v1/chat/conversations?user_id={Uri.EscapeDataString(userId)}&limit={limit}&skip={skip}";
++            try
++            {
++                var response = await _httpClient.GetAsync(url);
++                if (response.IsSuccessStatusCode)
++                {
++                    var result = await response.Content.ReadFromJsonAsync<PythonConversationsResponse>();
++                    return result ?? new PythonConversationsResponse();
++                }
++
++                await HandleDownstreamErrorAsync(response);
++                return new PythonConversationsResponse();
++            }
++            catch (HttpRequestException ex)
++            {
++                throw new InvalidOperationException("DownstreamServiceError", ex);
++            }
++        }
++
++        public async Task<PythonMessagesResponse> GetMessagesAsync(string conversationId, string userId, int limit, int skip, string order)
++        {
++            var url = $"internal/v1/chat/conversations/{Uri.EscapeDataString(conversationId)}/messages?user_id={Uri.EscapeDataString(userId)}&limit={limit}&skip={skip}&order={Uri.EscapeDataString(order)}";
++            try
++            {
++                var response = await _httpClient.GetAsync(url);
++                if (response.IsSuccessStatusCode)
++                {
++                    var result = await response.Content.ReadFromJsonAsync<PythonMessagesResponse>();
++                    return result ?? new PythonMessagesResponse();
++                }
++
++                await HandleDownstreamErrorAsync(response);
++                return new PythonMessagesResponse();
++            }
++            catch (HttpRequestException ex)
++            {
++                throw new InvalidOperationException("DownstreamServiceError", ex);
++            }
++        }
++
++        public async Task<PythonChatQueryResponse> ChatAsync(string userId, PythonChatQueryRequest request, CancellationToken cancellationToken = default)
++        {
++            // 1. Kiß╗âm tra t╞░ c├ích th├ánh vi├¬n active v├á ph├ón quyß╗ün ai:ask trong Workspace
++            var accountIdInt = int.Parse(userId);
++            var membership = await ResolveActiveMembershipAsync(accountIdInt, request.WorkspaceId);
++            await EnsureAskPermissionAsync(membership);
++
++            var billingMonth = GetCurrentBillingMonth();
++            var effectiveLimit = await ResolveEffectiveQuotaLimitAsync(request.WorkspaceId);
++
++            // 2. Trß╗▒c tiß║┐p thß╗▒c hiß╗çn trß╗½ Quota v├á giß║úi ph├│ng DB Lock ngay lß║¡p tß╗⌐c (kh├┤ng giß╗» SQL Transaction)
++            await EnsureMonthlyUsageRowAsync(request.WorkspaceId, billingMonth);
++            var newCount = await TryConsumeAIQuotaAsync(request.WorkspaceId, billingMonth, effectiveLimit);
++
++            try
++            {
++                // 3. Chuß║⌐n bß╗ï payload gß╗¡i cho Python Server (├⌐p kiß╗âu UserId sang string cß║⌐n thß║¡n)
++                var payload = new PythonChatQueryPayload
++                {
++                    ConversationId = request.ConversationId,
++                    UserId = userId,
++                    Message = request.Message,
++                    Attachments = request.Attachments,
++                    Provider = request.Provider,
++                    Model = request.Model,
++                    Temperature = request.Temperature,
++                    ForceNew = request.ForceNew,
++                    DynamicToolsMetadata = request.DynamicToolsMetadata
++                };
++
++                // Gß╗ìi Python LLM Server sß╗¡ dß╗Ñng client c├│ timeout lß╗¢n (60-120s)
++                var response = await _llmClient.PostAsJsonAsync("api/v1/chat/agent/mongo-query", payload, cancellationToken);
++                
++                if (!response.IsSuccessStatusCode)
++                {
++                    await HandleDownstreamErrorAsync(response);
++                }
++
++                var result = await response.Content.ReadFromJsonAsync<PythonChatQueryResponse>(cancellationToken: cancellationToken);
++                if (result == null)
++                {
++                    throw new InvalidOperationException("DownstreamServiceError");
++                }
++
++                result.RemainingQuota = CalculateRemainingQuota(effectiveLimit, newCount);
++                return result;
++            }
++            catch (Exception ex)
++            {
++                // 4. Giao dß╗ïch b├╣ trß╗½ (Compensating Transaction): ─Éß║⌐y v├áo h├áng ─æß╗úi ngß║ºm xß╗¡ l├╜ retry an to├án
++                _quotaCompensationQueue.QueueCompensation(request.WorkspaceId, billingMonth);
++
++                throw new InvalidOperationException("AI server hien tai khong kha dung, he thong dang hoan lai luot chat cua ban.", ex);
++            }
++        }
++
++        private async Task<ActiveMembership> ResolveActiveMembershipAsync(int accountId, int workspaceId)
++        {
++            var membership = await _context.WorkspaceMembers
++                .AsNoTracking()
++                .Where(member =>
++                    member.WorkspaceID == workspaceId
++                    && member.Resource.AccountID == accountId
++                    && member.Status == "Active"
++                    && !member.Workspace.IsDeleted
++                    && !member.Resource.IsDeleted)
++                .Select(member => new ActiveMembership
++                {
++                    WorkspaceMemberID = member.WorkspaceMemberID,
++                    WorkspaceRoleID = member.WorkspaceRoleID,
++                    RoleName = member.WorkspaceRole.RoleName
++                })
++                .FirstOrDefaultAsync();
++
++            if (membership == null)
++            {
++                throw new UnauthorizedAccessException("Ban khong phai thanh vien active cua workspace nay.");
++            }
++
++            return membership;
++        }
++
++        private async Task EnsureAskPermissionAsync(ActiveMembership membership)
++        {
++            if (string.Equals(membership.RoleName, "Owner", StringComparison.OrdinalIgnoreCase))
++            {
++                return;
++            }
++
++            var hasPermission = await _context.RolePermissions
++                .AsNoTracking()
++                .AnyAsync(rolePermission =>
++                    rolePermission.WorkspaceRoleID == membership.WorkspaceRoleID
++                    && rolePermission.PermissionID == AIPermissionIds.Ask);
++
++            if (!hasPermission)
++            {
++                throw new UnauthorizedAccessException("Ban khong co quyen su dung AI trong workspace nay.");
++            }
++        }
++
++        private async Task<int> ResolveEffectiveQuotaLimitAsync(int workspaceId)
++        {
++            var isStrictCheckEnabled = _configuration.GetValue<bool>("FeatureToggles:EnableStrictQuotaCheck");
++            if (!isStrictCheckEnabled)
++            {
++                return -1;
++            }
++
++            var limit = await _featureQuotaService.GetFeatureLimitAsync(workspaceId, AIChatQuotaFeatureCode);
++            if (limit == null)
++            {
++                throw new QuotaExceededException("Khong tim thay cau hinh quota AI cho workspace nay.");
++            }
++
++            if (limit.LimitValue == -1)
++            {
++                return -1;
++            }
++
++            if (limit.LimitValue <= 0)
++            {
++                throw new QuotaExceededException("Workspace da het quota hoi dap AI cua goi cuoc hien tai.");
++            }
++
++            return limit.LimitValue;
++        }
++
++        private async Task EnsureMonthlyUsageRowAsync(int workspaceId, DateOnly billingMonth)
++        {
++            await _context.Database.ExecuteSqlInterpolatedAsync($@"
++IF NOT EXISTS (
++    SELECT 1
++    FROM WorkspaceMonthlyUsages WITH (UPDLOCK, HOLDLOCK)
++    WHERE WorkspaceID = {workspaceId} AND BillingMonth = {billingMonth}
++)
++BEGIN
++    INSERT INTO WorkspaceMonthlyUsages (WorkspaceID, BillingMonth, AIQueryCount, StorageUsedMB, UpdatedAt)
++    VALUES ({workspaceId}, {billingMonth}, 0, 0, SYSUTCDATETIME())
++END");
++        }
++
++        private async Task<int> TryConsumeAIQuotaAsync(int workspaceId, DateOnly billingMonth, int effectiveLimit)
++        {
++            var affectedRows = await _context.Database.ExecuteSqlInterpolatedAsync($@"
++UPDATE WorkspaceMonthlyUsages
++SET AIQueryCount = ISNULL(AIQueryCount, 0) + 1,
++    UpdatedAt = SYSUTCDATETIME()
++WHERE WorkspaceID = {workspaceId}
++  AND BillingMonth = {billingMonth}
++  AND ({effectiveLimit} = -1 OR ISNULL(AIQueryCount, 0) < {effectiveLimit})");
++
++            if (affectedRows == 0)
++            {
++                throw new QuotaExceededException("Workspace da vuot quota hoi dap AI cua thang hien tai.");
++            }
++
++            return await _context.WorkspaceMonthlyUsages
++                .AsNoTracking()
++                .Where(usage =>
++                    usage.WorkspaceID == workspaceId
++                    && usage.BillingMonth == billingMonth)
++                .Select(usage => usage.AIQueryCount)
++                .SingleAsync();
++        }
++
++        private static int? CalculateRemainingQuota(int effectiveLimit, int newCount)
++        {
++            return effectiveLimit == -1 ? null : Math.Max(effectiveLimit - newCount, 0);
++        }
++
++        private static DateOnly GetCurrentBillingMonth()
++        {
++            var today = DateOnly.FromDateTime(DateTime.UtcNow);
++            return new DateOnly(today.Year, today.Month, 1);
++        }
++
++        private static async Task HandleDownstreamErrorAsync(HttpResponseMessage response)
++        {
++            if (response.StatusCode == HttpStatusCode.NotFound)
++            {
++                throw new KeyNotFoundException("ConversationNotFound");
++            }
++
++            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
++            {
++                throw new UnauthorizedAccessException("ConversationAccessDenied");
++            }
++
++            if (response.StatusCode == HttpStatusCode.BadRequest)
++            {
++                throw new ArgumentException("InvalidRequest");
++            }
++
++            throw new InvalidOperationException("DownstreamServiceError");
++        }
++
++        private sealed class ActiveMembership
++        {
++            public int WorkspaceMemberID { get; set; }
++            public int WorkspaceRoleID { get; set; }
++            public string RoleName { get; set; } = string.Empty;
++        }
++    }
++}
+diff --git a/src/AllocServer/appsettings.json b/src/AllocServer/appsettings.json
+index b64f55c..1a49d6b 100644
+--- a/src/AllocServer/appsettings.json
++++ b/src/AllocServer/appsettings.json
+@@ -73,5 +73,17 @@
+       "Host": "smtp.gmail.com",
+       "Port": 587
+     }
++  },
++  "PythonServiceSettings": {
++    "BaseAddress": "http://host.docker.internal:8000/",
++    "ToolsCallbackBaseUrl": "http://host.docker.internal:5000/",
++    "Internal": {
++      "HeaderName": "X-Internal-Token",
++      "Secret": "testkey123"
++    },
++    "Public": {
++      "HeaderName": "X-API-Key",
++      "Secret": "testkey123"
++    }
+   }
+ }
+\ No newline at end of file

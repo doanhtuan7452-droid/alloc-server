@@ -38,5 +38,12 @@ namespace AllocServer.Interfaces.Workspaces
             int workspaceId,
             int targetMemberId,
             UpdateMemberStatusRequest request);
+
+        Task<WorkspaceRoleSummaryResponse> CreateWorkspaceRoleAsync(int accountId, int workspaceId, CreateWorkspaceRoleRequest request);
+        Task<bool> UpdateWorkspaceRoleAsync(int accountId, int workspaceId, int roleId, UpdateWorkspaceRoleRequest request);
+        Task<bool> DeleteWorkspaceRoleAsync(int accountId, int workspaceId, int roleId);
+        Task<bool> UpdateRolePermissionsAsync(int accountId, int workspaceId, int roleId, UpdateRolePermissionsRequest request);
+        Task<WorkspaceRoleDetailResponse?> GetWorkspaceRoleDetailsAsync(int accountId, int workspaceId, int roleId);
+        Task<List<WorkspacePermissionResponse>> GetAvailablePermissionsAsync(int accountId, int workspaceId);
     }
 }

@@ -61,14 +61,37 @@ namespace AllocServer.Controllers
         [ProjectAuthorize]
         [ProducesResponseType(typeof(ProjectDetailResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
-        public IActionResult GetProject(int projectId)
+        public async Task<IActionResult> GetProject(int projectId)
         {
-            if (!TryGetCurrentProject(out var project))
+            try
             {
-                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+                var projectDetail = await _projectService.GetProjectAsync(projectId);
+                return Ok(projectDetail);
             }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
 
-            return Ok(_projectService.GetProject(project));
+        /// <summary>Lay tien do chi tiet cua du an.</summary>
+        [HttpGet("{projectId}/progress")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProjectAuthorize]
+        [ProducesResponseType(typeof(ProjectProgressResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetProjectProgress(int projectId)
+        {
+            try
+            {
+                var progress = await _projectService.GetProjectProgressAsync(projectId);
+                return Ok(progress);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
         }
 
         /// <summary>Cap nhat du an.</summary>
@@ -93,19 +116,18 @@ namespace AllocServer.Controllers
                 return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
             }
 
-            if (!TryGetCurrentProject(out var project))
-            {
-                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
-            }
-
             try
             {
                 var updatedProject = await _projectService.UpdateProjectAsync(
                     accountId,
-                    project,
+                    projectId,
                     request);
 
                 return Ok(updatedProject);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
@@ -132,13 +154,15 @@ namespace AllocServer.Controllers
                 return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
             }
 
-            if (!TryGetCurrentProject(out var project))
+            try
             {
-                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+                await _projectService.DeleteProjectAsync(accountId, projectId);
+                return NoContent();
             }
-
-            await _projectService.DeleteProjectAsync(accountId, project);
-            return NoContent();
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
         }
 
         /// <summary>Lay danh sach task cua du an.</summary>

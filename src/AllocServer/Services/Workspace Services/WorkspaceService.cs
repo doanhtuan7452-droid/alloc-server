@@ -4,6 +4,8 @@ using AllocServer.Interfaces;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Models;
 using AllocServer.Exceptions;
+using AllocServer.Events;
+using AllocServer.Events.DomainEvents;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 
@@ -14,15 +16,18 @@ namespace AllocServer.Services.Workspace_Services
         private readonly ApplicationDbContext _context;
         private readonly IFeatureQuotaService _featureQuotaService;
         private readonly IDistributedCache _cache;
+        private readonly IEventPublisher _eventPublisher;
 
         public WorkspaceService(
             ApplicationDbContext context,
             IFeatureQuotaService featureQuotaService,
-            IDistributedCache cache)
+            IDistributedCache cache,
+            IEventPublisher eventPublisher)
         {
             _context = context;
             _featureQuotaService = featureQuotaService;
             _cache = cache;
+            _eventPublisher = eventPublisher;
         }
 
         public async Task<List<WorkspaceListItemResponse>> GetCurrentUserWorkspacesAsync(int accountId)
@@ -214,22 +219,28 @@ namespace AllocServer.Services.Workspace_Services
                 projectsQuery = projectsQuery.Where(project => project.Status == status);
             }
 
-            return await projectsQuery
-                .OrderByDescending(project => project.CreatedAt)
-                .ThenByDescending(project => project.ProjectID)
-                .Select(project => new WorkspaceProjectListItemResponse
+            var queryResult = from project in projectsQuery
+                              join s in _context.ProjectProgressStats on project.ProjectID equals s.ProjectID into statsGroup
+                              from pgStat in statsGroup.DefaultIfEmpty()
+                              select new { Project = project, Stat = pgStat };
+
+            return await queryResult
+                .OrderByDescending(item => item.Project.CreatedAt)
+                .ThenByDescending(item => item.Project.ProjectID)
+                .Select(item => new WorkspaceProjectListItemResponse
                 {
-                    ProjectID = project.ProjectID,
-                    ProjectName = project.ProjectName,
-                    ExpectedBudget = project.ExpectedBudget,
-                    TotalRevenue = project.TotalRevenue,
-                    StartDate = project.StartDate,
-                    EndDate = project.EndDate,
-                    Status = project.Status,
-                    OriginalCurrencyCode = project.OriginalCurrencyCode,
-                    ExchangeRateToUSD = project.ExchangeRateToUSD,
-                    Methodology = project.Methodology,
-                    CreatedAt = project.CreatedAt
+                    ProjectID = item.Project.ProjectID,
+                    ProjectName = item.Project.ProjectName,
+                    ExpectedBudget = item.Project.ExpectedBudget,
+                    TotalRevenue = item.Project.TotalRevenue,
+                    StartDate = item.Project.StartDate,
+                    EndDate = item.Project.EndDate,
+                    Status = item.Project.Status,
+                    OriginalCurrencyCode = item.Project.OriginalCurrencyCode,
+                    ExchangeRateToUSD = item.Project.ExchangeRateToUSD,
+                    Methodology = item.Project.Methodology,
+                    CreatedAt = item.Project.CreatedAt,
+                    Progress = item.Stat != null ? item.Stat.WeightedProgress : 0.0
                 })
                 .ToListAsync();
         }
@@ -319,7 +330,8 @@ namespace AllocServer.Services.Workspace_Services
                 ExchangeRateToUSD = project.ExchangeRateToUSD,
                 Methodology = project.Methodology,
                 BaselineData = project.BaselineData,
-                CreatedAt = project.CreatedAt
+                CreatedAt = project.CreatedAt,
+                Progress = 0.0
             };
         }
 
@@ -715,6 +727,292 @@ namespace AllocServer.Services.Workspace_Services
             return string.IsNullOrWhiteSpace(value)
                 ? null
                 : value.Trim();
+        }
+
+        public async Task<WorkspaceRoleSummaryResponse> CreateWorkspaceRoleAsync(int accountId, int workspaceId, CreateWorkspaceRoleRequest request)
+        {
+            var currentUserMembership = await GetActiveOwnerMembershipAsync(accountId, workspaceId);
+            if (currentUserMembership == null)
+            {
+                var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+                if (!workspaceExists)
+                {
+                    throw new KeyNotFoundException("WorkspaceNotFound");
+                }
+                throw new UnauthorizedAccessException("OwnerMemberManagementOnly");
+            }
+
+            var roleName = NormalizeOptionalString(request.RoleName);
+            if (string.IsNullOrEmpty(roleName))
+            {
+                throw new ArgumentException("RoleNameRequired");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            try
+            {
+                var isDuplicate = await _context.WorkspaceRoles.AnyAsync(r => r.WorkspaceID == workspaceId && r.RoleName == roleName && !r.IsDeleted);
+                if (isDuplicate)
+                {
+                    throw new InvalidOperationException("RoleNameExists");
+                }
+
+                var newRole = new WorkspaceRole
+                {
+                    WorkspaceID = workspaceId,
+                    RoleName = roleName,
+                    IsTemplate = false,
+                    CreatedAt = DateTime.UtcNow,
+                    IsDeleted = false
+                };
+
+                _context.WorkspaceRoles.Add(newRole);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return new WorkspaceRoleSummaryResponse
+                {
+                    WorkspaceRoleID = newRole.WorkspaceRoleID,
+                    RoleName = newRole.RoleName
+                };
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<bool> UpdateWorkspaceRoleAsync(int accountId, int workspaceId, int roleId, UpdateWorkspaceRoleRequest request)
+        {
+            var currentUserMembership = await GetActiveOwnerMembershipAsync(accountId, workspaceId);
+            if (currentUserMembership == null)
+            {
+                var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+                if (!workspaceExists)
+                {
+                    throw new KeyNotFoundException("WorkspaceNotFound");
+                }
+                throw new UnauthorizedAccessException("OwnerMemberManagementOnly");
+            }
+
+            var roleName = NormalizeOptionalString(request.RoleName);
+            if (string.IsNullOrEmpty(roleName))
+            {
+                throw new ArgumentException("RoleNameRequired");
+            }
+
+            var role = await _context.WorkspaceRoles.FirstOrDefaultAsync(r => r.WorkspaceRoleID == roleId && (r.WorkspaceID == workspaceId || r.WorkspaceID == null) && !r.IsDeleted);
+            if (role == null)
+            {
+                throw new KeyNotFoundException("RoleNotFound");
+            }
+
+            if (role.IsTemplate || role.WorkspaceID == null || string.Equals(role.RoleName, "Owner", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException("CannotModifySystemRole");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            try
+            {
+                var isDuplicate = await _context.WorkspaceRoles.AnyAsync(r => r.WorkspaceID == workspaceId && r.RoleName == roleName && r.WorkspaceRoleID != roleId && !r.IsDeleted);
+                if (isDuplicate)
+                {
+                    throw new InvalidOperationException("RoleNameExists");
+                }
+
+                role.RoleName = roleName;
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            await _eventPublisher.PublishAsync(new WorkspaceRoleUpdatedEvent(workspaceId, roleId, "RoleNameUpdated"));
+            return true;
+        }
+
+        public async Task<bool> DeleteWorkspaceRoleAsync(int accountId, int workspaceId, int roleId)
+        {
+            var currentUserMembership = await GetActiveOwnerMembershipAsync(accountId, workspaceId);
+            if (currentUserMembership == null)
+            {
+                var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+                if (!workspaceExists)
+                {
+                    throw new KeyNotFoundException("WorkspaceNotFound");
+                }
+                throw new UnauthorizedAccessException("OwnerMemberManagementOnly");
+            }
+
+            var role = await _context.WorkspaceRoles.FirstOrDefaultAsync(r => r.WorkspaceRoleID == roleId && (r.WorkspaceID == workspaceId || r.WorkspaceID == null) && !r.IsDeleted);
+            if (role == null)
+            {
+                throw new KeyNotFoundException("RoleNotFound");
+            }
+
+            if (role.IsTemplate || role.WorkspaceID == null || string.Equals(role.RoleName, "Owner", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException("CannotDeleteSystemRole");
+            }
+
+            var isAssigned = await _context.WorkspaceMembers.AnyAsync(m => m.WorkspaceRoleID == roleId && m.Status != "Deactivated");
+            if (isAssigned)
+            {
+                throw new InvalidOperationException("RoleCannotDeleteAssigned");
+            }
+
+            role.IsDeleted = true;
+            role.DeletedAt = DateTime.UtcNow;
+            role.DeletedBy = accountId;
+
+            await _context.SaveChangesAsync();
+
+            await _eventPublisher.PublishAsync(new WorkspaceRoleUpdatedEvent(workspaceId, roleId, "RoleDeleted"));
+            return true;
+        }
+
+        public async Task<bool> UpdateRolePermissionsAsync(int accountId, int workspaceId, int roleId, UpdateRolePermissionsRequest request)
+        {
+            var currentUserMembership = await GetActiveOwnerMembershipAsync(accountId, workspaceId);
+            if (currentUserMembership == null)
+            {
+                var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+                if (!workspaceExists)
+                {
+                    throw new KeyNotFoundException("WorkspaceNotFound");
+                }
+                throw new UnauthorizedAccessException("OwnerMemberManagementOnly");
+            }
+
+            var role = await _context.WorkspaceRoles.FirstOrDefaultAsync(r => r.WorkspaceRoleID == roleId && (r.WorkspaceID == workspaceId || r.WorkspaceID == null) && !r.IsDeleted);
+            if (role == null)
+            {
+                throw new KeyNotFoundException("RoleNotFound");
+            }
+
+            if (role.IsTemplate || role.WorkspaceID == null || string.Equals(role.RoleName, "Owner", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException("CannotModifySystemRole");
+            }
+
+            var validPermissions = await _context.WorkspacePermissions
+                .Select(p => p.PermissionID)
+                .ToListAsync();
+
+            var invalidPermission = request.PermissionIds.FirstOrDefault(p => !validPermissions.Contains(p));
+            if (invalidPermission != null)
+            {
+                throw new ArgumentException("PermissionNotFound");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var existingPermissions = await _context.RolePermissions
+                    .Where(rp => rp.WorkspaceRoleID == roleId)
+                    .ToListAsync();
+
+                var toRemove = existingPermissions
+                    .Where(ep => !request.PermissionIds.Contains(ep.PermissionID))
+                    .ToList();
+
+                var existingIds = existingPermissions.Select(ep => ep.PermissionID).ToList();
+                var toAdd = request.PermissionIds
+                    .Where(pId => !existingIds.Contains(pId))
+                    .Select(pId => new RolePermission
+                    {
+                        WorkspaceRoleID = roleId,
+                        PermissionID = pId
+                    })
+                    .ToList();
+
+                if (toRemove.Any())
+                {
+                    _context.RolePermissions.RemoveRange(toRemove);
+                }
+
+                if (toAdd.Any())
+                {
+                    _context.RolePermissions.AddRange(toAdd);
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            await _eventPublisher.PublishAsync(new WorkspaceRoleUpdatedEvent(workspaceId, roleId, "PermissionsUpdated"));
+            return true;
+        }
+
+        public async Task<WorkspaceRoleDetailResponse?> GetWorkspaceRoleDetailsAsync(int accountId, int workspaceId, int roleId)
+        {
+            var isMember = await _context.WorkspaceMembers
+                .AnyAsync(m => m.WorkspaceID == workspaceId && m.Resource.AccountID == accountId && m.Status == "Active");
+            if (!isMember)
+            {
+                var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+                if (!workspaceExists)
+                {
+                    throw new KeyNotFoundException("WorkspaceNotFound");
+                }
+                throw new UnauthorizedAccessException("NotWorkspaceMember");
+            }
+
+            var role = await _context.WorkspaceRoles
+                .Where(r => r.WorkspaceRoleID == roleId && (r.WorkspaceID == workspaceId || r.WorkspaceID == null) && !r.IsDeleted)
+                .FirstOrDefaultAsync();
+
+            if (role == null)
+            {
+                throw new KeyNotFoundException("RoleNotFound");
+            }
+
+            var permissions = await _context.RolePermissions
+                .Where(rp => rp.WorkspaceRoleID == roleId)
+                .Select(rp => rp.PermissionID)
+                .ToListAsync();
+
+            return new WorkspaceRoleDetailResponse
+            {
+                WorkspaceRoleID = role.WorkspaceRoleID,
+                WorkspaceID = role.WorkspaceID,
+                RoleName = role.RoleName,
+                IsTemplate = role.IsTemplate,
+                Permissions = permissions
+            };
+        }
+
+        public async Task<List<WorkspacePermissionResponse>> GetAvailablePermissionsAsync(int accountId, int workspaceId)
+        {
+            var isMember = await _context.WorkspaceMembers
+                .AnyAsync(m => m.WorkspaceID == workspaceId && m.Resource.AccountID == accountId && m.Status == "Active");
+            if (!isMember)
+            {
+                var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+                if (!workspaceExists)
+                {
+                    throw new KeyNotFoundException("WorkspaceNotFound");
+                }
+                throw new UnauthorizedAccessException("NotWorkspaceMember");
+            }
+
+            return await _context.WorkspacePermissions
+                .Select(p => new WorkspacePermissionResponse
+                {
+                    PermissionID = p.PermissionID,
+                    DisplayName = p.DisplayName
+                })
+                .ToListAsync();
         }
     }
 }

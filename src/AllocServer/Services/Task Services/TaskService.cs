@@ -413,6 +413,31 @@ namespace AllocServer.Services.Task_Services
             return MapTaskAssignee(taskAssignee);
         }
 
+        public async Task<List<TaskAssigneeDetailResponse>> GetTaskAssigneesAsync(int taskId)
+        {
+            return await _context.TaskAssignees
+                .AsNoTracking()
+                .Where(ta => ta.TaskID == taskId)
+                .Where(ta => !ta.WorkspaceMember!.Resource!.IsDeleted
+                          && !ta.WorkspaceMember.Resource.Account!.IsDeleted
+                          && !ta.WorkspaceMember.WorkspaceRole!.IsDeleted)
+                .GroupBy(ta => new { ta.TaskID, ta.WorkspaceMemberID })
+                .Select(g => new TaskAssigneeDetailResponse
+                {
+                    TaskId = g.Key.TaskID,
+                    MemberId = g.Key.WorkspaceMemberID,
+                    EmployeeCode = g.First().WorkspaceMember!.EmployeeCode,
+                    FullName = g.First().WorkspaceMember!.Resource!.FullName,
+                    Email = g.First().WorkspaceMember!.Resource!.Account!.Email,
+                    AvatarUrl = g.First().WorkspaceMember!.Resource!.AvatarURL,
+                    WorkspaceRoleName = g.First().WorkspaceMember!.WorkspaceRole!.RoleName,
+                    MemberStatus = g.First().WorkspaceMember!.Status,
+                    AssigneeTypes = g.Select(x => x.AssigneeType).Distinct().ToList(),
+                    OldestAssignedAt = g.Min(x => x.AssignedAt)
+                })
+                .ToListAsync();
+        }
+
         public async Task<bool> RemoveTaskAssigneeAsync(
             ProjectTask task,
             int workspaceMemberId)

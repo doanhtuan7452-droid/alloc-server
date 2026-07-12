@@ -4,6 +4,7 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Configuration;
 using AllocServer.Interfaces;
 using AllocServer.Interfaces.AI;
 using AllocServer.Interfaces.AIInsights;
@@ -81,11 +82,26 @@ namespace AllocServer.Extensions
             services.AddScoped<IAIInsightService, AIInsightService>();
             services.AddScoped<IAIAnalysisService, AIAnalysisService>();
             services.AddScoped<IAIProvider, MockAIProvider>();
+            services.AddScoped<IPythonChatService, PythonChatService>();
+            services.AddSingleton<IAIQuotaCompensationQueue, AIQuotaCompensationQueue>();
+            services.AddHostedService<AIQuotaCompensationBackgroundService>();
             services.AddScoped<IRequestService, RequestService>();
             services.AddScoped<ISessionService, SessionService>();
             services.AddScoped<ITokenDenylistService, TokenDenylistService>();
             services.AddScoped<RequireActiveAccountFilter>();
             services.AddScoped<RequireSystemAccountFilter>();
+            services.AddScoped<RequireInternalTokenFilter>();
+
+            // AI Dynamic Webhook Tool Execution & Guards
+            services.AddScoped<IAIToolSafetyGuard, AIToolSafetyGuard>();
+            services.AddScoped<IAIToolDispatcher, AIToolDispatcher>();
+            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.CreateProjectToolHandler>();
+            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.CreateTaskToolHandler>();
+            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.GetProjectInfoToolHandler>();
+            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.GetEmployeeListToolHandler>();
+            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.GetEmployeeDetailToolHandler>();
+            services.AddScoped<IAIToolHandler, AllocServer.Services.AI_Services.Handlers.GetWorkspaceProjectsToolHandler>();
+            services.AddHostedService<AIBackchannelToolSyncService>();
 
             // Storage Strategy + Factory
             services.AddScoped<AzureBlobStorageStrategy>();
@@ -136,6 +152,55 @@ namespace AllocServer.Extensions
             {
                 client.BaseAddress = new Uri("https://oauth2.googleapis.com/");
                 client.Timeout = TimeSpan.FromSeconds(10);
+            });
+
+            // HttpClient for Python AI Server (Internal APIs)
+            services.AddHttpClient("PythonAIClient", (provider, client) =>
+            {
+                var config = provider.GetRequiredService<IConfiguration>();
+                var settings = config.GetSection("PythonServiceSettings");
+                var baseAddress = settings["BaseAddress"] ?? throw new InvalidOperationException("PythonServiceSettings:BaseAddress is missing.");
+                
+                var internalSection = settings.GetSection("Internal");
+                var headerName = internalSection["HeaderName"] ?? settings["HeaderName"] ?? "X-Internal-Token";
+                var secret = internalSection["Secret"] ?? settings["Secret"] ?? throw new InvalidOperationException("PythonServiceSettings:Secret is missing.");
+
+                client.BaseAddress = new Uri(baseAddress);
+                client.DefaultRequestHeaders.Add(headerName, secret);
+            })
+            .AddStandardResilienceHandler(options =>
+            {
+                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(15);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(30);
+            });
+
+            // HttpClient for Python LLM (specifically Chat and heavy queries)
+            services.AddHttpClient("PythonLLMClient", (provider, client) =>
+            {
+                var config = provider.GetRequiredService<IConfiguration>();
+                var settings = config.GetSection("PythonServiceSettings");
+                var baseAddress = settings["BaseAddress"] ?? throw new InvalidOperationException("PythonServiceSettings:BaseAddress is missing.");
+                
+                var publicSection = settings.GetSection("Public");
+                var headerName = publicSection["HeaderName"] ?? settings["HeaderName"] ?? "X-API-Key";
+                var secret = publicSection["Secret"] ?? settings["Secret"] ?? throw new InvalidOperationException("PythonServiceSettings:Secret is missing.");
+
+                client.BaseAddress = new Uri(baseAddress);
+                
+                if (headerName.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
+                {
+                    client.DefaultRequestHeaders.TryAddWithoutValidation(headerName, secret.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? secret : $"Bearer {secret}");
+                }
+                else
+                {
+                    client.DefaultRequestHeaders.Add(headerName, secret);
+                }
+            })
+            .AddStandardResilienceHandler(options =>
+            {
+                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(60);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(120);
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(130);
             });
 
             return services;

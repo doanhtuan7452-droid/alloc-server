@@ -24,6 +24,8 @@ namespace AllocServer.Interfaces.Tasks
             ProjectTask task,
             AssignTaskAssigneeRequest request);
 
+        Task<List<TaskAssigneeDetailResponse>> GetTaskAssigneesAsync(int taskId);
+
         Task<bool> RemoveTaskAssigneeAsync(
             ProjectTask task,
             int workspaceMemberId);

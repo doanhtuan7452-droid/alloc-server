@@ -1,5 +1,6 @@
 using AllocServer.Data;
 using AllocServer.DTOs.Workspaces;
+using AllocServer.DTOs.Projects;
 using AllocServer.Interfaces.Projects;
 using AllocServer.Models;
 using Microsoft.EntityFrameworkCore;
@@ -24,16 +25,38 @@ namespace AllocServer.Services.Project_Services
             _context = context;
         }
 
-        public ProjectDetailResponse GetProject(Project project)
+        public async Task<ProjectDetailResponse> GetProjectAsync(int projectId)
         {
-            return MapProject(project);
+            var projectAndStats = await (
+                from p in _context.Projects
+                where p.ProjectID == projectId && !p.IsDeleted
+                join s in _context.ProjectProgressStats on p.ProjectID equals s.ProjectID into statsGroup
+                from pgStat in statsGroup.DefaultIfEmpty()
+                select new { Project = p, Stat = pgStat }
+            ).FirstOrDefaultAsync();
+
+            if (projectAndStats == null)
+            {
+                throw new KeyNotFoundException("ProjectNotFound");
+            }
+
+            var response = MapProject(projectAndStats.Project);
+            response.Progress = projectAndStats.Stat != null ? projectAndStats.Stat.WeightedProgress : 0.0;
+            return response;
         }
 
         public async Task<ProjectDetailResponse> UpdateProjectAsync(
             int accountId,
-            Project project,
+            int projectId,
             UpdateProjectRequest request)
         {
+            var project = await _context.Projects
+                .FirstOrDefaultAsync(p => p.ProjectID == projectId && !p.IsDeleted);
+
+            if (project == null)
+            {
+                throw new KeyNotFoundException("ProjectNotFound");
+            }
             var projectName = NormalizeOptionalString(request.ProjectName);
             if (projectName == null)
             {
@@ -136,11 +159,23 @@ namespace AllocServer.Services.Project_Services
                 throw;
             }
 
-            return MapProject(project);
+            var progressStat = await _context.ProjectProgressStats
+                .FirstOrDefaultAsync(s => s.ProjectID == project.ProjectID);
+
+            var response = MapProject(project);
+            response.Progress = progressStat != null ? progressStat.WeightedProgress : 0.0;
+            return response;
         }
 
-        public async Task DeleteProjectAsync(int accountId, Project project)
+        public async Task DeleteProjectAsync(int accountId, int projectId)
         {
+            var project = await _context.Projects
+                .FirstOrDefaultAsync(p => p.ProjectID == projectId && !p.IsDeleted);
+
+            if (project == null)
+            {
+                throw new KeyNotFoundException("ProjectNotFound");
+            }
             var deletedAt = DateTime.UtcNow;
 
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -236,6 +271,39 @@ namespace AllocServer.Services.Project_Services
                 await transaction.RollbackAsync();
                 throw;
             }
+        }
+
+        public async Task<ProjectProgressResponse> GetProjectProgressAsync(int projectId)
+        {
+            var projectAndStats = await (
+                from p in _context.Projects
+                where p.ProjectID == projectId && !p.IsDeleted
+                join s in _context.ProjectProgressStats on p.ProjectID equals s.ProjectID into statsGroup
+                from pgStat in statsGroup.DefaultIfEmpty()
+                select new { Project = p, Stat = pgStat }
+            ).FirstOrDefaultAsync();
+
+            if (projectAndStats == null)
+            {
+                throw new KeyNotFoundException("ProjectNotFound");
+            }
+
+            var project = projectAndStats.Project;
+            var stat = projectAndStats.Stat;
+
+            return new ProjectProgressResponse
+            {
+                ProjectID = project.ProjectID,
+                ProjectName = project.ProjectName,
+                Status = project.Status,
+                SimpleProgress = stat != null ? Math.Round(stat.SimpleProgress, 2) : 0.0,
+                WeightedProgress = stat != null ? Math.Round(stat.WeightedProgress, 2) : 0.0,
+                TotalTasks = stat != null ? stat.TotalTasks : 0,
+                TodoTasks = stat != null ? stat.TodoCount : 0,
+                InProgressTasks = stat != null ? stat.InProgressCount : 0,
+                ReviewTasks = stat != null ? stat.ReviewCount : 0,
+                DoneTasks = stat != null ? stat.DoneCount : 0
+            };
         }
 
         private static ProjectDetailResponse MapProject(Project project)

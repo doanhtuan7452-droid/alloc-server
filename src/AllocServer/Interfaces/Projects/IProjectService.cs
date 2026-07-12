@@ -1,17 +1,20 @@
 using AllocServer.DTOs.Workspaces;
+using AllocServer.DTOs.Projects;
 using AllocServer.Models;
 
 namespace AllocServer.Interfaces.Projects
 {
     public interface IProjectService
     {
-        ProjectDetailResponse GetProject(Project project);
+        Task<ProjectDetailResponse> GetProjectAsync(int projectId);
 
         Task<ProjectDetailResponse> UpdateProjectAsync(
             int accountId,
-            Project project,
+            int projectId,
             UpdateProjectRequest request);
 
-        Task DeleteProjectAsync(int accountId, Project project);
+        Task DeleteProjectAsync(int accountId, int projectId);
+
+        Task<ProjectProgressResponse> GetProjectProgressAsync(int projectId);
     }
 }
