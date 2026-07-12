@@ -5,6 +5,7 @@ using AllocServer.Models.Auth;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AllocServer.Converters;
 
 namespace AllocServer.Services.Auth_Strategies
 {
@@ -221,6 +222,7 @@ namespace AllocServer.Services.Auth_Strategies
         public string Email { get; set; } = string.Empty;
 
         [JsonPropertyName("email_verified")]
+        [JsonConverter(typeof(FlexibleBoolConverter))]
         public bool EmailVerified { get; set; }
 
         [JsonPropertyName("name")]
