@@ -48,9 +48,15 @@ namespace AllocServer.Controllers
                 return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
             }
 
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
             try
             {
                 var updatedTask = await _taskService.UpdateProjectTaskAsync(
+                    accountId,
                     task,
                     project,
                     request);
@@ -177,9 +183,14 @@ namespace AllocServer.Controllers
                 return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
             }
 
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
             try
             {
-                var removed = await _taskService.RemoveTaskAssigneeAsync(task, memberId);
+                var removed = await _taskService.RemoveTaskAssigneeAsync(accountId, task, memberId);
                 if (!removed)
                 {
                     return NotFound(new ApiResponse { Message = "Khong tim thay assignment cua member trong task." });

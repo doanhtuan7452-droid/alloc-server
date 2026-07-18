@@ -73,7 +73,9 @@ namespace AllocServer.Extensions
             services.AddScoped<INotificationService, NotificationService>();
             services.AddScoped<IFirebasePushService, FirebasePushService>();
             services.AddSingleton<INotificationQueue, NotificationQueue>();
+            services.AddSingleton<INotificationCompensationQueue, NotificationCompensationQueue>();
             services.AddHostedService<NotificationDispatcherService>();
+            services.AddHostedService<NotificationCompensationBackgroundService>();
             services.AddSingleton<IProfileCalculationQueue, ProfileCalculationQueue>();
             services.AddHostedService<ProfileCalculationDispatcherService>();
             services.AddHostedService<ProfilePeriodicalBackgroundService>();

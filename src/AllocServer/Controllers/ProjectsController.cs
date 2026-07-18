@@ -185,9 +185,15 @@ namespace AllocServer.Controllers
                 return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
             }
 
+            int? currentAccountId = null;
+            if (TryGetCurrentAccountId(out var accountId))
+            {
+                currentAccountId = accountId;
+            }
+
             try
             {
-                var tasks = await _taskService.GetProjectTasksAsync(project, query);
+                var tasks = await _taskService.GetProjectTasksAsync(project, query, currentAccountId);
                 return Ok(tasks);
             }
             catch (ArgumentException ex)

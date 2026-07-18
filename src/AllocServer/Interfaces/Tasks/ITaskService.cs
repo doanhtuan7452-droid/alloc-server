@@ -7,7 +7,8 @@ namespace AllocServer.Interfaces.Tasks
     {
         Task<PagedProjectTasksResponse> GetProjectTasksAsync(
             Project project,
-            GetProjectTasksQuery query);
+            GetProjectTasksQuery query,
+            int? currentAccountId = null);
 
         Task<ProjectTaskDetailResponse> CreateProjectTaskAsync(
             int accountId,
@@ -15,6 +16,7 @@ namespace AllocServer.Interfaces.Tasks
             CreateProjectTaskRequest request);
 
         Task<ProjectTaskDetailResponse> UpdateProjectTaskAsync(
+            int accountId,
             ProjectTask task,
             Project project,
             UpdateProjectTaskRequest request);
@@ -27,6 +29,7 @@ namespace AllocServer.Interfaces.Tasks
         Task<List<TaskAssigneeDetailResponse>> GetTaskAssigneesAsync(int taskId);
 
         Task<bool> RemoveTaskAssigneeAsync(
+            int accountId,
             ProjectTask task,
             int workspaceMemberId);
 

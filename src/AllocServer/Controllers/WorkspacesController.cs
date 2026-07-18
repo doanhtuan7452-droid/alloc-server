@@ -63,6 +63,13 @@ namespace AllocServer.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
+            // Validate Type field
+            var allowedTypes = new[] { "Personal", "Company" };
+            if (string.IsNullOrWhiteSpace(request.Type) || !allowedTypes.Contains(request.Type))
+            {
+                return BadRequest(new ApiResponse { Message = $"Giá trị 'type' không hợp lệ. Chỉ chấp nhận: {string.Join(", ", allowedTypes)}." });
+            }
+
             // 1. Lấy AccountId từ Token
             var accountIdStr = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value 
                                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -87,7 +94,8 @@ namespace AllocServer.Controllers
                 var workspace = new Workspace
                 {
                     Name = request.Name,
-                    Type = request.Type
+                    Type = request.Type,
+                    StandardHours = request.StandardHours ?? 8.00m
                 };
                 _context.Workspaces.Add(workspace);
                 await _context.SaveChangesAsync(); // Cần save để lấy WorkspaceID
@@ -134,7 +142,8 @@ namespace AllocServer.Controllers
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, new ApiResponse { Message = $"Lỗi khi tạo Workspace: {ex.Message}" });
+                var innerMsg = ex.InnerException?.Message ?? "Không có thông tin chi tiết.";
+                return StatusCode(500, new ApiResponse { Message = $"Lỗi khi tạo Workspace: {ex.Message} | Chi tiết: {innerMsg}" });
             }
         }
 

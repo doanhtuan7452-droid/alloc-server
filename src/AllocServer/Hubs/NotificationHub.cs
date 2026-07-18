@@ -2,6 +2,8 @@ using AllocServer.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace AllocServer.Hubs
 {
@@ -17,7 +19,9 @@ namespace AllocServer.Hubs
 
         public override async Task OnConnectedAsync()
         {
-            var accountIdString = Context.User?.FindFirst("sub")?.Value;
+            var accountIdString = Context.User?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                                  ?? Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
             if (int.TryParse(accountIdString, out int accountId))
             {
                 var activeMemberIds = await _dbContext.WorkspaceMembers

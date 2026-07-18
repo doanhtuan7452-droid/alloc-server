@@ -8,6 +8,9 @@ namespace AllocServer.DTOs.Requests
         [JsonPropertyName("taskId")]
         public int? TaskId { get; set; }
 
+        [JsonPropertyName("projectId")]
+        public int? ProjectId { get; set; }
+
         [Required(ErrorMessage = "requestedDate la bat buoc.")]
         [JsonPropertyName("requestedDate")]
         public DateOnly? RequestedDate { get; set; }

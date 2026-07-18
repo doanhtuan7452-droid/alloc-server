@@ -3,6 +3,8 @@ using AllocServer.DTOs.Risks;
 using AllocServer.Interfaces.Risks;
 using AllocServer.Models;
 using Microsoft.EntityFrameworkCore;
+using AllocServer.Events;
+using AllocServer.Events.DomainEvents;
 
 namespace AllocServer.Services.Risk_Services
 {
@@ -46,10 +48,12 @@ namespace AllocServer.Services.Risk_Services
         };
 
         private readonly ApplicationDbContext _context;
+        private readonly IEventPublisher _eventPublisher;
 
-        public RiskService(ApplicationDbContext context)
+        public RiskService(ApplicationDbContext context, IEventPublisher eventPublisher)
         {
             _context = context;
+            _eventPublisher = eventPublisher;
         }
 
         public async Task<PagedProjectRisksResponse> GetProjectRisksAsync(
@@ -264,6 +268,24 @@ namespace AllocServer.Services.Risk_Services
 
             // Reload entity to get computed column RiskScore from database
             await _context.Entry(risk).ReloadAsync();
+
+            // Bắn sự kiện thông báo rủi ro mới
+            var actorMember = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.Resource.AccountID == accountId && m.WorkspaceID == project.WorkspaceID && m.Status == "Active");
+            var actorMemberId = actorMember?.WorkspaceMemberID ?? 0;
+
+            var riskEvent = new RiskNotificationEvent(
+                riskId: risk.RiskID,
+                riskName: risk.RiskName,
+                projectId: project.ProjectID,
+                projectName: project.ProjectName,
+                recipientMemberId: risk.OwnerID,
+                actorMemberId: actorMemberId,
+                actionType: "Created",
+                message: $"A new risk '{risk.RiskName}' (Category: {risk.Category}, Impact Score: {risk.Probability * risk.Impact}) has been identified in project '{project.ProjectName}'."
+            );
+            await _eventPublisher.PublishAsync(riskEvent);
 
             return MapRisk(risk, project.ProjectName);
         }

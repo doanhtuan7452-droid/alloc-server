@@ -131,104 +131,136 @@ namespace AllocServer.Services.Timesheet_Services
         {
             ValidateHours(request.NormalHours, request.OTHours);
 
-            var task = await _context.ProjectTasks
-                .Include(item => item.Project)
-                .FirstOrDefaultAsync(item =>
-                    item.TaskID == request.TaskId
-                    && item.Project != null);
-
-            if (task == null || task.Project == null)
-            {
-                throw new KeyNotFoundException("TaskNotFound");
-            }
-
-            ValidateWorkDate(task, request.WorkDate);
-
-            var membership = await _context.WorkspaceMembers
-                .AsNoTracking()
-                .Where(item =>
-                    item.WorkspaceID == task.Project.WorkspaceID
-                    && item.Resource.AccountID == accountId
-                    && item.Status == "Active"
-                    && !item.Workspace.IsDeleted
-                    && !item.Resource.IsDeleted)
-                .Select(item => new 
-                {
-                    item.WorkspaceMemberID,
-                    item.BaseSalaryMonth,
-                    item.OTRatePerHour
-                })
-                .FirstOrDefaultAsync();
-
-            if (membership == null)
-            {
-                throw new UnauthorizedAccessException("UnauthorizedTaskWorkspaceMember");
-            }
-
-            var loggedHourlyRate = CalculateHourlyRate(membership.BaseSalaryMonth);
-            var loggedOTRate = membership.OTRatePerHour;
-            var now = DateTime.UtcNow;
-
-            var timesheet = await _context.Timesheets
-                .FirstOrDefaultAsync(item =>
-                    item.TaskID == task.TaskID
-                    && item.WorkspaceMemberID == membership.WorkspaceMemberID
-                    && item.WorkDate == request.WorkDate);
-
-            var created = timesheet == null;
-            if (timesheet == null)
-            {
-                timesheet = new Timesheet
-                {
-                    TaskID = task.TaskID,
-                    WorkspaceMemberID = membership.WorkspaceMemberID,
-                    WorkDate = request.WorkDate,
-                    NormalHours = request.NormalHours,
-                    OTHours = request.OTHours,
-                    LoggedHourlyRate = loggedHourlyRate,
-                    LoggedOTRate = loggedOTRate,
-                    CreatedAt = now
-                };
-
-                _context.Timesheets.Add(timesheet);
-            }
-            else
-            {
-                timesheet.NormalHours = request.NormalHours;
-                timesheet.OTHours = request.OTHours;
-                timesheet.LoggedHourlyRate = loggedHourlyRate;
-                timesheet.LoggedOTRate = loggedOTRate;
-            }
-
+            using var transaction = await _context.Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
             try
             {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex)
-            {
-                if (!IsUniqueConstraintViolation(ex))
+                var task = await _context.ProjectTasks
+                    .Include(item => item.Project)
+                    .FirstOrDefaultAsync(item =>
+                        item.TaskID == request.TaskId
+                        && item.Project != null);
+
+                if (task == null || task.Project == null)
                 {
-                    throw;
+                    throw new KeyNotFoundException("TaskNotFound");
                 }
 
-                _context.Entry(timesheet).State = EntityState.Detached;
+                ValidateWorkDate(task, request.WorkDate);
 
-                timesheet = await _context.Timesheets
-                    .FirstAsync(item =>
+                // Acquire a Pessimistic Lock on the WorkspaceMember row to serialize timesheet updates for this user
+                var membership = await _context.WorkspaceMembers
+                    .FromSqlRaw(
+                        "SELECT * FROM WorkspaceMembers WITH (UPDLOCK) WHERE WorkspaceID = {0} AND ResourceID = (SELECT ResourceID FROM Resources WHERE AccountID = {1})",
+                        task.Project.WorkspaceID, accountId)
+                    .FirstOrDefaultAsync();
+
+                if (membership == null)
+                {
+                    throw new UnauthorizedAccessException("UnauthorizedTaskWorkspaceMember");
+                }
+
+                if (request.OTHours > 0)
+                {
+                    // 1. Calculate sum of OTHours already logged in Timesheets for the same member, date, and project (excluding current task if updating)
+                    var otherLoggedOTHours = await _context.Timesheets
+                        .Where(t => t.WorkspaceMemberID == membership.WorkspaceMemberID
+                                    && t.WorkDate == request.WorkDate
+                                    && t.Task != null
+                                    && t.Task.ProjectID == task.ProjectID
+                                    && t.TaskID != task.TaskID
+                                    && !t.IsDeleted)
+                        .SumAsync(t => t.OTHours);
+
+                    var totalAttemptedOTHours = otherLoggedOTHours + request.OTHours;
+
+                    // 2. Calculate total approved OT hours in OTRequests for the same member, date, and project
+                    var approvedOTHours = await _context.OTRequests
+                        .Where(r => r.WorkspaceMemberID == membership.WorkspaceMemberID
+                                    && r.RequestedDate == request.WorkDate
+                                    && r.ProjectID == task.ProjectID
+                                    && r.Status == "Approved"
+                                    && !r.IsDeleted)
+                        .SumAsync(r => r.ExpectedHours);
+
+                    // 3. Prevent saving if attempted exceeds approved hours
+                    if (totalAttemptedOTHours > approvedOTHours)
+                    {
+                        throw new ArgumentException("OTHoursExceedsApprovedLimit");
+                    }
+                }
+
+                var loggedHourlyRate = CalculateHourlyRate(membership.BaseSalaryMonth);
+                var loggedOTRate = membership.OTRatePerHour;
+                var now = DateTime.UtcNow;
+
+                var timesheet = await _context.Timesheets
+                    .FirstOrDefaultAsync(item =>
                         item.TaskID == task.TaskID
                         && item.WorkspaceMemberID == membership.WorkspaceMemberID
                         && item.WorkDate == request.WorkDate);
 
-                created = false;
-                timesheet.NormalHours = request.NormalHours;
-                timesheet.OTHours = request.OTHours;
-                timesheet.LoggedHourlyRate = loggedHourlyRate;
-                timesheet.LoggedOTRate = loggedOTRate;
+                var created = timesheet == null;
+                if (timesheet == null)
+                {
+                    timesheet = new Timesheet
+                    {
+                        TaskID = task.TaskID,
+                        WorkspaceMemberID = membership.WorkspaceMemberID,
+                        WorkDate = request.WorkDate,
+                        NormalHours = request.NormalHours,
+                        OTHours = request.OTHours,
+                        LoggedHourlyRate = loggedHourlyRate,
+                        LoggedOTRate = loggedOTRate,
+                        CreatedAt = now
+                    };
 
-                await _context.SaveChangesAsync();
+                    _context.Timesheets.Add(timesheet);
+                }
+                else
+                {
+                    timesheet.NormalHours = request.NormalHours;
+                    timesheet.OTHours = request.OTHours;
+                    timesheet.LoggedHourlyRate = loggedHourlyRate;
+                    timesheet.LoggedOTRate = loggedOTRate;
+                }
+
+                try
+                {
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                {
+                    if (!IsUniqueConstraintViolation(ex))
+                    {
+                        throw;
+                    }
+
+                    _context.Entry(timesheet).State = EntityState.Detached;
+
+                    timesheet = await _context.Timesheets
+                        .FirstAsync(item =>
+                            item.TaskID == task.TaskID
+                            && item.WorkspaceMemberID == membership.WorkspaceMemberID
+                            && item.WorkDate == request.WorkDate);
+
+                    created = false;
+                    timesheet.NormalHours = request.NormalHours;
+                    timesheet.OTHours = request.OTHours;
+                    timesheet.LoggedHourlyRate = loggedHourlyRate;
+                    timesheet.LoggedOTRate = loggedOTRate;
+
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+
+                return (await MapTimesheetAsync(timesheet.TimesheetID), created);
             }
-
-            return (await MapTimesheetAsync(timesheet.TimesheetID), created);
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         private async Task<List<int>> ResolveReadableMemberIdsAsync(

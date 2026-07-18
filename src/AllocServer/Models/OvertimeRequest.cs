@@ -20,6 +20,11 @@ namespace AllocServer.Models
         [ForeignKey("TaskID")]
         public ProjectTask? Task { get; set; }
 
+        public int? ProjectID { get; set; }
+
+        [ForeignKey("ProjectID")]
+        public Project? Project { get; set; }
+
         public DateOnly RequestedDate { get; set; }
 
         [Column(TypeName = "decimal(5,2)")]

@@ -3,9 +3,13 @@ using AllocServer.DTOs.Conversations;
 using AllocServer.DTOs.Messages;
 using AllocServer.Hubs;
 using AllocServer.Interfaces.Conversations;
+using AllocServer.Interfaces.Notifications;
+using AllocServer.Services.Notification_Services;
+using AllocServer.DTOs.Notifications;
 using AllocServer.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
+using System.Text.Json;
 
 namespace AllocServer.Services.Conversations
 {
@@ -13,13 +17,19 @@ namespace AllocServer.Services.Conversations
     {
         private readonly ApplicationDbContext _context;
         private readonly IHubContext<ConversationHub> _hubContext;
+        private readonly INotificationQueue _notificationQueue;
+        private readonly INotificationCompensationQueue _compensationQueue;
 
         public ConversationService(
             ApplicationDbContext context,
-            IHubContext<ConversationHub> hubContext)
+            IHubContext<ConversationHub> hubContext,
+            INotificationQueue notificationQueue,
+            INotificationCompensationQueue compensationQueue)
         {
             _context = context;
             _hubContext = hubContext;
+            _notificationQueue = notificationQueue;
+            _compensationQueue = compensationQueue;
         }
 
         private async Task<WorkspaceMember> GetCurrentWorkspaceMemberAsync(int accountId, int workspaceId)
@@ -388,6 +398,82 @@ namespace AllocServer.Services.Conversations
                 .Group(ConversationHub.BuildConversationGroup(conversationId))
                 .SendAsync("MessageCreated", response);
 
+            // Gửi thông báo cho các thành viên khác trong nhóm chat
+            var otherMemberIds = await _context.ConversationMembers
+                .Where(cm => cm.ConversationID == conversationId 
+                          && cm.MemberID != currentMember.WorkspaceMemberID
+                          && cm.WorkspaceMember.Status == "Active")
+                .Select(cm => cm.MemberID)
+                .ToListAsync();
+
+            var senderName = currentMember.Resource?.FullName ?? "Someone";
+            var shortenedContent = content != null 
+                ? (content.Length > 60 ? content.Substring(0, 57) + "..." : content)
+                : "[Tài liệu đính kèm]";
+
+            var notifications = otherMemberIds.Select(memberId => new Notification
+            {
+                RecipientID = memberId,
+                ActorID = currentMember.WorkspaceMemberID,
+                NotificationType = "NewMessage",
+                Title = "New Message in " + (conversation.Name ?? "Chat"),
+                Message = $"{senderName}: {shortenedContent}",
+                ReferenceType = "Conversation",
+                ReferenceID = conversationId,
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow,
+                MetadataJson = JsonSerializer.Serialize(new { MessageID = message.MessageID })
+            }).ToList();
+
+            try
+            {
+                if (notifications.Any())
+                {
+                    _context.Notifications.AddRange(notifications);
+                    await _context.SaveChangesAsync();
+
+                    foreach (var notification in notifications)
+                    {
+                        var dto = new NotificationDTO
+                        {
+                            NotificationID = notification.NotificationID,
+                            NotificationType = notification.NotificationType,
+                            Title = notification.Title,
+                            Message = notification.Message,
+                            ReferenceType = notification.ReferenceType,
+                            ReferenceID = notification.ReferenceID,
+                            IsRead = notification.IsRead,
+                            CreatedAt = notification.CreatedAt,
+                            MetadataJson = notification.MetadataJson
+                        };
+
+                        await _notificationQueue.QueueNotificationAsync(new NotificationDispatchMessage
+                        {
+                            RecipientID = notification.RecipientID,
+                            Payload = dto
+                        });
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                foreach (var memberId in otherMemberIds)
+                {
+                    var item = new NotificationCompensationItem
+                    {
+                        RecipientID = memberId,
+                        ActorID = currentMember.WorkspaceMemberID,
+                        NotificationType = "NewMessage",
+                        Title = "New Message in " + (conversation.Name ?? "Chat"),
+                        Message = $"{senderName}: {shortenedContent}",
+                        ReferenceType = "Conversation",
+                        ReferenceID = conversationId,
+                        MetadataJson = JsonSerializer.Serialize(new { MessageID = message.MessageID })
+                    };
+                    await _compensationQueue.QueueCompensationAsync(item);
+                }
+            }
+
             return response;
         }
 
@@ -405,6 +491,20 @@ namespace AllocServer.Services.Conversations
                 throw new UnauthorizedAccessException("Bạn không có quyền truy cập hội thoại này.");
 
             member.LastReadAt = DateTime.UtcNow;
+
+            var unreadNotifications = await _context.Notifications
+                .Where(n => n.RecipientID == member.MemberID 
+                         && n.ReferenceType == "Conversation" 
+                         && n.ReferenceID == conversationId 
+                         && !n.IsRead)
+                .ToListAsync();
+
+            foreach (var n in unreadNotifications)
+            {
+                n.IsRead = true;
+                n.ReadAt = DateTime.UtcNow;
+            }
+
             await _context.SaveChangesAsync();
 
             var payload = new

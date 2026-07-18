@@ -16,6 +16,9 @@ namespace AllocServer.DTOs.Workspaces
         [JsonPropertyName("createdAt")]
         public DateTime CreatedAt { get; set; }
 
+        [JsonPropertyName("standardHours")]
+        public decimal StandardHours { get; set; }
+
         [JsonPropertyName("currentUserMembership")]
         public WorkspaceMembershipResponse CurrentUserMembership { get; set; } = new();
 

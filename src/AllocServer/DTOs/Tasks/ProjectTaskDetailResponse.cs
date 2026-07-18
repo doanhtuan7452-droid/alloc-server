@@ -46,5 +46,9 @@ namespace AllocServer.DTOs.Tasks
         /// <summary>Số lượng nhân sự dự kiến.</summary>
         [JsonPropertyName("expectedTeamSize")]
         public int ExpectedTeamSize { get; set; } = 1;
+
+        /// <summary>Danh sách thành viên được gán/tham gia task.</summary>
+        [JsonPropertyName("assignees")]
+        public List<TaskAssigneeDetailResponse> Assignees { get; set; } = new();
     }
 }

@@ -214,6 +214,12 @@
   <data name="WorkDateAfterTaskEnd" xml:space="preserve">
     <value>Ngày làm việc không được lớn hơn ngày kết thúc công việc.</value>
   </data>
+  <data name="OTHoursExceedsApprovedLimit" xml:space="preserve">
+    <value>Số giờ OT vượt quá tổng số giờ OT đã được phê duyệt cho dự án này trong ngày.</value>
+  </data>
+  <data name="TaskIdOrProjectIdRequired" xml:space="preserve">
+    <value>Yêu cầu cung cấp TaskId hoặc ProjectId để xác định dự án.</value>
+  </data>
 
   <!-- WorkspaceMemberProfileService Exceptions -->
   <data name="ProfileAlreadyExists" xml:space="preserve">

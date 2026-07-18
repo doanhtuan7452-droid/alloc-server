@@ -4,6 +4,9 @@ using AllocServer.Filters;
 using AllocServer.Interfaces.Requests;
 using AllocServer.Models;
 using Microsoft.EntityFrameworkCore;
+using AllocServer.Interfaces.Notifications;
+using AllocServer.DTOs.Notifications;
+using System.Text.Json;
 
 namespace AllocServer.Services.Request_Services
 {
@@ -17,10 +20,12 @@ namespace AllocServer.Services.Request_Services
         private const decimal MaxHoursPerDay = 24m;
 
         private readonly ApplicationDbContext _context;
+        private readonly INotificationQueue _notificationQueue;
 
-        public RequestService(ApplicationDbContext context)
+        public RequestService(ApplicationDbContext context, INotificationQueue notificationQueue)
         {
             _context = context;
+            _notificationQueue = notificationQueue;
         }
 
         public async Task<LeaveRequestResponse> CreateLeaveRequestAsync(
@@ -78,19 +83,46 @@ namespace AllocServer.Services.Request_Services
 
             ValidateExpectedHours(request.ExpectedHours);
 
+            if (request.TaskId == null && request.ProjectId == null)
+            {
+                throw new ArgumentException("TaskIdOrProjectIdRequired");
+            }
+
             if (request.TaskId is <= 0)
             {
                 throw new ArgumentException("InvalidTaskId");
             }
 
+            if (request.ProjectId is <= 0)
+            {
+                throw new ArgumentException("InvalidProjectId");
+            }
+
             var membership = await GetActiveMembershipAsync(accountId, workspaceId);
 
+            int? resolvedProjectId = null;
             if (request.TaskId != null)
             {
                 await ValidateTaskForOTRequestAsync(
                     workspaceId,
                     request.TaskId.Value,
                     request.RequestedDate.Value);
+
+                var task = await _context.ProjectTasks
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.TaskID == request.TaskId.Value);
+                resolvedProjectId = task?.ProjectID;
+            }
+            else if (request.ProjectId != null)
+            {
+                var project = await _context.Projects
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.ProjectID == request.ProjectId.Value && p.WorkspaceID == workspaceId);
+                if (project == null)
+                {
+                    throw new KeyNotFoundException("ProjectNotFoundInWorkspace");
+                }
+                resolvedProjectId = project.ProjectID;
             }
 
             var now = DateTime.UtcNow;
@@ -98,6 +130,7 @@ namespace AllocServer.Services.Request_Services
             {
                 WorkspaceMemberID = membership.WorkspaceMemberID,
                 TaskID = request.TaskId,
+                ProjectID = resolvedProjectId,
                 RequestedDate = request.RequestedDate.Value,
                 ExpectedHours = request.ExpectedHours,
                 Status = PendingStatus,
@@ -157,6 +190,56 @@ namespace AllocServer.Services.Request_Services
 
             await _context.SaveChangesAsync();
 
+            // Gửi thông báo phê duyệt nghỉ phép (đa hình)
+            try
+            {
+                var reviewerMember = await _context.WorkspaceMembers
+                    .Include(m => m.Resource)
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(m => m.WorkspaceMemberID == reviewer.WorkspaceMemberID);
+                var reviewerName = reviewerMember?.Resource?.FullName ?? "Manager";
+
+                var notification = new Notification
+                {
+                    RecipientID = leaveRequest.WorkspaceMemberID,
+                    ActorID = reviewer.WorkspaceMemberID,
+                    NotificationType = "LeaveRequestReviewed",
+                    Title = $"Leave Request {status}",
+                    Message = $"Your leave request has been {status.ToLower()} by {reviewerName}.",
+                    ReferenceType = "Project",
+                    ReferenceID = 0,
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow,
+                    MetadataJson = JsonSerializer.Serialize(new { LeaveRequestID = leaveRequest.RequestID, Status = status })
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                var dto = new NotificationDTO
+                {
+                    NotificationID = notification.NotificationID,
+                    NotificationType = notification.NotificationType,
+                    Title = notification.Title,
+                    Message = notification.Message,
+                    ReferenceType = notification.ReferenceType,
+                    ReferenceID = notification.ReferenceID,
+                    IsRead = notification.IsRead,
+                    CreatedAt = notification.CreatedAt,
+                    MetadataJson = notification.MetadataJson
+                };
+
+                await _notificationQueue.QueueNotificationAsync(new NotificationDispatchMessage
+                {
+                    RecipientID = leaveRequest.WorkspaceMemberID,
+                    Payload = dto
+                });
+            }
+            catch (Exception)
+            {
+                // Silently swallow notification errors to avoid rolling back business state
+            }
+
             return new RequestReviewResponse
             {
                 RequestType = LeaveType,
@@ -196,6 +279,59 @@ namespace AllocServer.Services.Request_Services
             otRequest.ReviewedAt = reviewedAt;
 
             await _context.SaveChangesAsync();
+
+            // Gửi thông báo phê duyệt OT (đa hình)
+            try
+            {
+                var reviewerMember = await _context.WorkspaceMembers
+                    .Include(m => m.Resource)
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(m => m.WorkspaceMemberID == reviewer.WorkspaceMemberID);
+                var reviewerName = reviewerMember?.Resource?.FullName ?? "Manager";
+
+                var refType = otRequest.TaskID.HasValue ? "Task" : "Project";
+                var refId = otRequest.TaskID ?? 0;
+
+                var notification = new Notification
+                {
+                    RecipientID = otRequest.WorkspaceMemberID,
+                    ActorID = reviewer.WorkspaceMemberID,
+                    NotificationType = "OTRequestReviewed",
+                    Title = $"OT Request {status}",
+                    Message = $"Your overtime request has been {status.ToLower()} by {reviewerName}.",
+                    ReferenceType = refType,
+                    ReferenceID = refId,
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow,
+                    MetadataJson = JsonSerializer.Serialize(new { OTRequestID = otRequest.OTRequestID, Status = status })
+                };
+
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync();
+
+                var dto = new NotificationDTO
+                {
+                    NotificationID = notification.NotificationID,
+                    NotificationType = notification.NotificationType,
+                    Title = notification.Title,
+                    Message = notification.Message,
+                    ReferenceType = notification.ReferenceType,
+                    ReferenceID = notification.ReferenceID,
+                    IsRead = notification.IsRead,
+                    CreatedAt = notification.CreatedAt,
+                    MetadataJson = notification.MetadataJson
+                };
+
+                await _notificationQueue.QueueNotificationAsync(new NotificationDispatchMessage
+                {
+                    RecipientID = otRequest.WorkspaceMemberID,
+                    Payload = dto
+                });
+            }
+            catch (Exception)
+            {
+                // Silently swallow notification errors to avoid rolling back business state
+            }
 
             return new RequestReviewResponse
             {
@@ -337,10 +473,11 @@ namespace AllocServer.Services.Request_Services
                         : string.Empty,
                     TaskId = item.TaskID,
                     TaskName = item.Task != null ? item.Task.TaskName : null,
-                    ProjectId = item.Task != null ? item.Task.ProjectID : null,
-                    ProjectName = item.Task != null && item.Task.Project != null
-                        ? item.Task.Project.ProjectName
-                        : null,
+                    ProjectId = item.ProjectID ?? (item.Task != null ? item.Task.ProjectID : null),
+                    ProjectName = (item.Project != null ? item.Project.ProjectName : null)
+                        ?? (item.Task != null && item.Task.Project != null
+                            ? item.Task.Project.ProjectName
+                            : null),
                     RequestedDate = item.RequestedDate,
                     ExpectedHours = item.ExpectedHours,
                     ApproverId = item.ApproverID,

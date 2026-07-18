@@ -74,7 +74,8 @@ namespace AllocServer.Services.Workspace_Services
                     item.WorkspaceID,
                     item.Name,
                     item.Type,
-                    item.CreatedAt
+                    item.CreatedAt,
+                    item.StandardHours
                 })
                 .FirstOrDefaultAsync();
 
@@ -123,6 +124,7 @@ namespace AllocServer.Services.Workspace_Services
                 Name = workspace.Name,
                 Type = workspace.Type,
                 CreatedAt = workspace.CreatedAt,
+                StandardHours = workspace.StandardHours,
                 CurrentUserMembership = currentUserMembership,
                 MemberSummary = new WorkspaceMemberSummaryResponse
                 {
@@ -304,16 +306,18 @@ namespace AllocServer.Services.Workspace_Services
             try
             {
                 await _context.SaveChangesAsync();
+                
+                var creatorMemberId = currentUserMembership.WorkspaceMemberID;
+                await _eventPublisher.PublishAsync(new ProjectCreatedEvent(project.ProjectID, project.ProjectName, creatorMemberId, workspaceId));
             }
             catch (DbUpdateException ex)
             {
-                // SQL Server Error 2601 or 2627: Unique constraint violation
                 if (ex.InnerException is Microsoft.Data.SqlClient.SqlException sqlEx && 
                     (sqlEx.Number == 2601 || sqlEx.Number == 2627))
                 {
                     throw new InvalidOperationException("ProjectNameExists");
                 }
-                throw; // Ném lại lỗi nếu không phải lỗi trùng tên
+                throw; 
             }
 
             return new ProjectDetailResponse
@@ -378,6 +382,10 @@ namespace AllocServer.Services.Workspace_Services
 
             // Cập nhật các trường được phép
             workspace.Name = request.Name;
+            if (request.StandardHours.HasValue)
+            {
+                workspace.StandardHours = request.StandardHours.Value;
+            }
             
             await _context.SaveChangesAsync();
             return true;

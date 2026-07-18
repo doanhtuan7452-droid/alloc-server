@@ -45,5 +45,9 @@ namespace AllocServer.DTOs.Tasks
         /// <summary>Bộ lọc theo độ ưu tiên: 'Low', 'Medium', 'High', 'Critical'.</summary>
         [JsonPropertyName("priority")]
         public string? Priority { get; set; }
+
+        /// <summary>Chỉ lấy các task mà người dùng hiện tại đang được gán làm Assignee.</summary>
+        [JsonPropertyName("assignedToMe")]
+        public bool? AssignedToMe { get; set; }
     }
 }

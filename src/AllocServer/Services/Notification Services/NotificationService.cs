@@ -240,21 +240,35 @@ namespace AllocServer.Services.Notification_Services
             }
             else if (notification.ReferenceType == "Project")
             {
-                var projRef = await _context.Projects
-                    .Where(p => p.ProjectID == notification.ReferenceID && !p.IsDeleted)
-                    .Select(p => new { p.ProjectID, p.ProjectName, p.WorkspaceID })
-                    .FirstOrDefaultAsync();
-
-                if (projRef != null)
+                if (notification.ReferenceID == 0)
                 {
                     notification.ReferenceData = new NotificationReferenceResponse
                     {
-                        Type = "Project",
-                        Id = projRef.ProjectID,
-                        Title = projRef.ProjectName,
-                        WorkspaceId = projRef.WorkspaceID,
-                        ProjectId = projRef.ProjectID
+                        Type = "LeaveRequest",
+                        Id = 0,
+                        Title = "Đơn nghỉ phép",
+                        WorkspaceId = 0,
+                        ProjectId = 0
                     };
+                }
+                else
+                {
+                    var projRef = await _context.Projects
+                        .Where(p => p.ProjectID == notification.ReferenceID && !p.IsDeleted)
+                        .Select(p => new { p.ProjectID, p.ProjectName, p.WorkspaceID })
+                        .FirstOrDefaultAsync();
+
+                    if (projRef != null)
+                    {
+                        notification.ReferenceData = new NotificationReferenceResponse
+                        {
+                            Type = "Project",
+                            Id = projRef.ProjectID,
+                            Title = projRef.ProjectName,
+                            WorkspaceId = projRef.WorkspaceID,
+                            ProjectId = projRef.ProjectID
+                        };
+                    }
                 }
             }
             else if (notification.ReferenceType == "Risk")

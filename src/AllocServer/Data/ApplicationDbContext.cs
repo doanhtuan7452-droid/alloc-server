@@ -83,6 +83,10 @@ namespace AllocServer.Data
             {
                 entity.HasQueryFilter(w => !w.IsDeleted);
                 entity.ToTable(tb => tb.HasTrigger("trg_AutoAssignFreePlan"));
+                entity.Property(w => w.StandardHours)
+                      .HasColumnType("decimal(5,2)")
+                      .HasDefaultValue(8.00m);
+                entity.ToTable(tb => tb.HasCheckConstraint("CHK_Workspaces_StandardHours", "StandardHours >= 0.00 AND StandardHours <= 24.00"));
             });
 
             modelBuilder.Entity<WorkspaceRole>()
@@ -216,6 +220,12 @@ namespace AllocServer.Data
                 .HasOne(m => m.Sender)
                 .WithMany()
                 .HasForeignKey(m => m.SenderID)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<OvertimeRequest>()
+                .HasOne(r => r.Project)
+                .WithMany()
+                .HasForeignKey(r => r.ProjectID)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // WorkspaceCurrentLimit maps to a View

@@ -490,6 +490,7 @@ appsettings.*.json
 secrets.json
 SQLPRMS2.sql
 SQLPRMS3.sql
+update_schema.sql
 
 # Docs file
 docs/

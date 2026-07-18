@@ -80,7 +80,8 @@ namespace AllocServer.Services.Task_Services
 
         public async Task<PagedProjectTasksResponse> GetProjectTasksAsync(
             Project project,
-            GetProjectTasksQuery query)
+            GetProjectTasksQuery query,
+            int? currentAccountId = null)
         {
             var page = Math.Max(query.Page, 1);
             var pageSize = Math.Clamp(query.PageSize, 1, 100);
@@ -119,6 +120,19 @@ namespace AllocServer.Services.Task_Services
             var tasksQuery = _context.ProjectTasks
                 .AsNoTracking()
                 .Where(item => item.ProjectID == project.ProjectID);
+
+            if (query.AssignedToMe == true && currentAccountId.HasValue)
+            {
+                tasksQuery = tasksQuery.Where(item => _context.TaskAssignees.Any(ta =>
+                    ta.TaskID == item.TaskID
+                    && ta.WorkspaceMember!.Resource!.AccountID == currentAccountId.Value
+                    && ta.AssigneeType == "Assignee"
+                    && ta.WorkspaceMember.Status == "Active"
+                    && ta.WorkspaceMember.Resource.Account!.AccountStatus == "Active"
+                    && !ta.WorkspaceMember.Resource.IsDeleted
+                    && !ta.WorkspaceMember.Resource.Account.IsDeleted
+                    && !ta.WorkspaceMember.WorkspaceRole!.IsDeleted));
+            }
 
             if (!string.IsNullOrEmpty(search))
             {
@@ -202,6 +216,46 @@ namespace AllocServer.Services.Task_Services
                 })
                 .ToListAsync();
 
+            if (items.Count > 0)
+            {
+                var taskIds = items.Select(t => t.TaskID).ToList();
+                var assigneesList = await _context.TaskAssignees
+                    .AsNoTracking()
+                    .Where(ta => taskIds.Contains(ta.TaskID))
+                    .Where(ta => ta.WorkspaceMember!.Status == "Active"
+                              && ta.WorkspaceMember.Resource!.Account!.AccountStatus == "Active"
+                              && !ta.WorkspaceMember.Resource.IsDeleted
+                              && !ta.WorkspaceMember.Resource.Account.IsDeleted
+                              && !ta.WorkspaceMember.WorkspaceRole!.IsDeleted)
+                    .GroupBy(ta => new { ta.TaskID, ta.WorkspaceMemberID })
+                    .Select(g => new TaskAssigneeDetailResponse
+                    {
+                        TaskId = g.Key.TaskID,
+                        MemberId = g.Key.WorkspaceMemberID,
+                        EmployeeCode = g.First().WorkspaceMember!.EmployeeCode,
+                        FullName = g.First().WorkspaceMember!.Resource!.FullName,
+                        Email = g.First().WorkspaceMember!.Resource!.Account!.Email,
+                        AvatarUrl = g.First().WorkspaceMember!.Resource!.AvatarURL,
+                        WorkspaceRoleName = g.First().WorkspaceMember!.WorkspaceRole!.RoleName,
+                        MemberStatus = g.First().WorkspaceMember!.Status,
+                        AssigneeTypes = g.Select(x => x.AssigneeType).Distinct().ToList(),
+                        OldestAssignedAt = g.Min(x => x.AssignedAt)
+                    })
+                    .ToListAsync();
+
+                var assigneesDict = assigneesList
+                    .GroupBy(a => a.TaskId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                foreach (var item in items)
+                {
+                    if (assigneesDict.TryGetValue(item.TaskID, out var list))
+                    {
+                        item.Assignees = list;
+                    }
+                }
+            }
+
             return new PagedProjectTasksResponse
             {
                 Page = page,
@@ -270,10 +324,14 @@ namespace AllocServer.Services.Task_Services
             _context.ProjectTasks.Add(task);
             await _context.SaveChangesAsync();
 
+            var creatorMemberId = await GetWorkspaceMemberIdAsync(accountId, project.WorkspaceID);
+            await _eventPublisher.PublishAsync(new TaskCreatedEvent(task.TaskID, task.TaskName, creatorMemberId, project.ProjectID, project.WorkspaceID));
+
             return MapTask(task);
         }
 
         public async Task<ProjectTaskDetailResponse> UpdateProjectTaskAsync(
+            int accountId,
             ProjectTask task,
             Project project,
             UpdateProjectTaskRequest request)
@@ -333,6 +391,7 @@ namespace AllocServer.Services.Task_Services
             ValidateTaskDates(project, request.StartDate, request.EndDate);
 
             var oldStatus = task.Status;
+            var oldEndDate = task.EndDate;
 
             task.TaskName = taskName;
             task.DurationType = durationType;
@@ -350,6 +409,13 @@ namespace AllocServer.Services.Task_Services
             if (oldStatus != status)
             {
                 await _eventPublisher.PublishAsync(new TaskStatusChangedEvent(task.TaskID, oldStatus, status));
+            }
+
+            if (oldEndDate != request.EndDate)
+            {
+                var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+                var changerMemberId = await GetWorkspaceMemberIdAsync(accountId, taskWorkspaceId);
+                await _eventPublisher.PublishAsync(new TaskDeadlineChangedEvent(task.TaskID, task.TaskName, oldEndDate, request.EndDate, changerMemberId));
             }
 
             return MapTask(task);
@@ -418,8 +484,10 @@ namespace AllocServer.Services.Task_Services
             return await _context.TaskAssignees
                 .AsNoTracking()
                 .Where(ta => ta.TaskID == taskId)
-                .Where(ta => !ta.WorkspaceMember!.Resource!.IsDeleted
-                          && !ta.WorkspaceMember.Resource.Account!.IsDeleted
+                .Where(ta => ta.WorkspaceMember!.Status == "Active"
+                          && ta.WorkspaceMember.Resource!.Account!.AccountStatus == "Active"
+                          && !ta.WorkspaceMember.Resource.IsDeleted
+                          && !ta.WorkspaceMember.Resource.Account.IsDeleted
                           && !ta.WorkspaceMember.WorkspaceRole!.IsDeleted)
                 .GroupBy(ta => new { ta.TaskID, ta.WorkspaceMemberID })
                 .Select(g => new TaskAssigneeDetailResponse
@@ -439,6 +507,7 @@ namespace AllocServer.Services.Task_Services
         }
 
         public async Task<bool> RemoveTaskAssigneeAsync(
+            int accountId,
             ProjectTask task,
             int workspaceMemberId)
         {
@@ -447,11 +516,19 @@ namespace AllocServer.Services.Task_Services
                 throw new ArgumentException("InvalidMemberId");
             }
 
+            var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+            var assignerMemberId = await GetWorkspaceMemberIdAsync(accountId, taskWorkspaceId);
+
             var deletedCount = await _context.TaskAssignees
                 .Where(item =>
                     item.TaskID == task.TaskID
                     && item.WorkspaceMemberID == workspaceMemberId)
                 .ExecuteDeleteAsync();
+
+            if (deletedCount > 0)
+            {
+                await _eventPublisher.PublishAsync(new TaskUnassignedEvent(task.TaskID, workspaceMemberId, assignerMemberId, task.TaskName));
+            }
 
             return deletedCount > 0;
         }
@@ -664,6 +741,8 @@ namespace AllocServer.Services.Task_Services
                 .Include(m => m.Resource)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.WorkspaceMemberID == memberId);
+
+            await _eventPublisher.PublishAsync(new TaskCommentCreatedEvent(comment.CommentID, task.TaskID, task.TaskName, memberId, finalParentId, comment.Content));
 
             return new TaskCommentResponse
             {

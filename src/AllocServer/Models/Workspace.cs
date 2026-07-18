@@ -17,6 +17,9 @@ namespace AllocServer.Models
         [StringLength(50)]
         public string Type { get; set; } // 'Personal', 'Company'
 
+        [Column(TypeName = "decimal(5,2)")]
+        public decimal StandardHours { get; set; } = 8.00m;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Soft delete
