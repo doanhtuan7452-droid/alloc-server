@@ -26,5 +26,6 @@ namespace AllocServer.Interfaces.WorkspaceMemberProfiles
         Task<ReviewCycleResponse> StartReviewCycleAsync(int workspaceId, int cycleId);
         Task<ReviewCycleResponse> CompleteReviewCycleAsync(int workspaceId, int cycleId);
         Task<MemberEvaluationResponse> SubmitMemberEvaluationAsync(int workspaceId, int cycleId, SubmitEvaluationRequest request);
+        Task<List<MemberEvaluationResponse>> GetMemberEvaluationsAsync(int workspaceId, int cycleId);
     }
 }

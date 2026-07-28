@@ -282,7 +282,7 @@ namespace AllocServer.Services.Workspace_Services
                 throw new ArgumentException("CurrencyCodeTooLong");
             }
 
-            if (request.ExchangeRateToUSD <= 0 || request.ExchangeRateToUSD > 999999.9999m)
+            if (request.ExchangeRateToUSD <= 0 || request.ExchangeRateToUSD > 999999.999999999999m)
             {
                 throw new ArgumentException("InvalidExchangeRate");
             }
@@ -1021,6 +1021,114 @@ namespace AllocServer.Services.Workspace_Services
                     DisplayName = p.DisplayName
                 })
                 .ToListAsync();
+        }
+
+        public async Task<bool> UpdateMemberRoleAsync(
+            int accountId,
+            int workspaceId,
+            int targetMemberId,
+            UpdateMemberRoleRequest request)
+        {
+            var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+            if (!workspaceExists)
+            {
+                throw new KeyNotFoundException("WorkspaceNotFound");
+            }
+
+            var targetMember = await _context.WorkspaceMembers
+                .Include(m => m.Resource)
+                .Include(m => m.WorkspaceRole)
+                .FirstOrDefaultAsync(m => m.WorkspaceMemberID == targetMemberId && m.WorkspaceID == workspaceId);
+
+            if (targetMember == null)
+            {
+                throw new KeyNotFoundException("WorkspaceMemberNotFound");
+            }
+
+            var targetRole = await _context.WorkspaceRoles
+                .FirstOrDefaultAsync(r => r.WorkspaceRoleID == request.WorkspaceRoleID && r.WorkspaceID == workspaceId && !r.IsDeleted);
+
+            if (targetRole == null)
+            {
+                throw new KeyNotFoundException("WorkspaceRoleNotFound");
+            }
+
+            if (string.Equals(targetRole.RoleName, "Owner", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("CannotAssignOwnerRole");
+            }
+
+            if (string.Equals(targetMember.WorkspaceRole.RoleName, "Owner", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("CannotModifyOwnerRole");
+            }
+
+            targetMember.WorkspaceRoleID = request.WorkspaceRoleID;
+            await _context.SaveChangesAsync();
+
+            if (targetMember.Resource?.AccountID != null)
+            {
+                var cacheKey = $"workspace_auth_{targetMember.Resource.AccountID}_{workspaceId}";
+                await _cache.RemoveAsync(cacheKey);
+            }
+
+            return true;
+        }
+
+        public async Task<bool> UpdateMemberSalaryOTAsync(
+            int accountId,
+            int workspaceId,
+            int targetMemberId,
+            UpdateMemberSalaryOTRequest request)
+        {
+            var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+            if (!workspaceExists)
+            {
+                throw new KeyNotFoundException("WorkspaceNotFound");
+            }
+
+            var targetMember = await _context.WorkspaceMembers
+                .Include(m => m.Resource)
+                .FirstOrDefaultAsync(m => m.WorkspaceMemberID == targetMemberId && m.WorkspaceID == workspaceId);
+
+            if (targetMember == null)
+            {
+                throw new KeyNotFoundException("WorkspaceMemberNotFound");
+            }
+
+            targetMember.BaseSalaryMonth = request.BaseSalaryMonth;
+            targetMember.OTRatePerHour = request.OTRatePerHour;
+            await _context.SaveChangesAsync();
+
+            return true;
+        }
+
+        public async Task<MemberSalaryOTResponse?> GetMemberSalaryOTAsync(
+            int accountId,
+            int workspaceId,
+            int targetMemberId)
+        {
+            var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+            if (!workspaceExists)
+            {
+                throw new KeyNotFoundException("WorkspaceNotFound");
+            }
+
+            var targetMember = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.WorkspaceMemberID == targetMemberId && m.WorkspaceID == workspaceId);
+
+            if (targetMember == null)
+            {
+                throw new KeyNotFoundException("WorkspaceMemberNotFound");
+            }
+
+            return new MemberSalaryOTResponse
+            {
+                WorkspaceMemberID = targetMember.WorkspaceMemberID,
+                BaseSalaryMonth = targetMember.BaseSalaryMonth,
+                OTRatePerHour = targetMember.OTRatePerHour
+            };
         }
     }
 }

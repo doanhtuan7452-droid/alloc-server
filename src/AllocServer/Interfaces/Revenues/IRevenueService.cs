@@ -8,5 +8,10 @@ namespace AllocServer.Interfaces.Revenues
         Task<PagedProjectRevenuesResponse> GetProjectRevenuesAsync(
             Project project,
             GetProjectRevenuesQuery query);
+
+        Task<RevenueDetailResponse> CreateProjectRevenueAsync(
+            int accountId,
+            Project project,
+            CreateRevenueRequest request);
     }
 }

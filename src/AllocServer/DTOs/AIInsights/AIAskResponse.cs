@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace AllocServer.DTOs.AIInsights
@@ -21,5 +23,8 @@ namespace AllocServer.DTOs.AIInsights
 
         [JsonPropertyName("remainingQuota")]
         public int? RemainingQuota { get; set; }
+
+        [JsonPropertyName("results")]
+        public List<AIAllocationAssessmentResultDto>? Results { get; set; }
     }
 }

@@ -114,7 +114,7 @@ namespace AllocServer.Services.Project_Services
             var exchangeRate = project.ExchangeRateToUSD;
             if (request.ExchangeRateToUSD.HasValue)
             {
-                if (request.ExchangeRateToUSD.Value <= 0 || request.ExchangeRateToUSD.Value > 999999.9999m)
+                if (request.ExchangeRateToUSD.Value <= 0 || request.ExchangeRateToUSD.Value > 999999.999999999999m)
                 {
                     throw new ArgumentException("InvalidExchangeRate");
                 }

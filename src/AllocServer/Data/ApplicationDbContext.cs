@@ -104,7 +104,7 @@ namespace AllocServer.Data
 
             modelBuilder.Entity<Project>()
                 .Property(p => p.ExchangeRateToUSD)
-                .HasColumnType("DECIMAL(10,4)")
+                .HasColumnType("DECIMAL(18,12)")
                 .HasDefaultValue(1.0m);
 
             modelBuilder.Entity<Project>()

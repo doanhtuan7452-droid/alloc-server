@@ -495,5 +495,6 @@ update_schema.sql
 # Docs file
 docs/
 docs_api_python/
+scripts-sql/
 
 scratch-verify/

@@ -94,6 +94,44 @@ namespace AllocServer.Controllers
             return Ok(response);
         }
 
+        /// <summary>Cap nhat rui ro.</summary>
+        [HttpPut("{riskId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [RiskAuthorize(RiskPermissionIds.Create)]
+        [ProducesResponseType(typeof(RiskDetailResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateRisk(
+            int riskId,
+            [FromBody] UpdateRiskRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            if (!TryGetCurrentRisk(out var risk))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Risk." });
+            }
+
+            try
+            {
+                var response = await _riskService.UpdateRiskAsync(accountId, risk, request);
+                return Ok(response);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
         private bool TryGetCurrentRisk(out Risk risk)
         {
             if (HttpContext.Items.TryGetValue(RiskAuthorizeAttribute.CurrentRiskItemKey, out var item)

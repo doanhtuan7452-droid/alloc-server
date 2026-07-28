@@ -19,5 +19,13 @@ namespace AllocServer.Interfaces.Requests
             string requestType,
             int requestId,
             ReviewRequestRequest request);
+
+        Task<List<LeaveRequestResponse>> GetWorkspaceLeaveRequestsAsync(
+            int accountId,
+            int workspaceId);
+
+        Task<List<OTRequestResponse>> GetWorkspaceOTRequestsAsync(
+            int accountId,
+            int workspaceId);
     }
 }

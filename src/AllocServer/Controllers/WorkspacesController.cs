@@ -13,6 +13,7 @@ using AllocServer.Exceptions;
 using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Filters;
+using AllocServer.Constants.Permissions;
 
 namespace AllocServer.Controllers
 {
@@ -724,6 +725,123 @@ namespace AllocServer.Controllers
             {
                 var permissions = await _workspaceService.GetAvailablePermissionsAsync(accountId, workspaceId);
                 return Ok(permissions);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Cập nhật vai trò (Role) của một thành viên trong Workspace.</summary>
+        [HttpPut("{workspaceId}/members/{memberId}/role")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize(MemberProfilePermissionIds.Manage)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateMemberRole(
+            int workspaceId,
+            int memberId,
+            [FromBody] UpdateMemberRoleRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var result = await _workspaceService.UpdateMemberRoleAsync(accountId, workspaceId, memberId, request);
+                return Ok(new ApiResponse { Message = "Cap nhat vai tro thanh vien thanh cong." });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Cập nhật lương cơ bản và tỷ giá OT của một thành viên trong Workspace.</summary>
+        [HttpPut("{workspaceId}/members/{memberId}/salary-ot")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize(MemberProfilePermissionIds.Manage)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateMemberSalaryOT(
+            int workspaceId,
+            int memberId,
+            [FromBody] UpdateMemberSalaryOTRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var result = await _workspaceService.UpdateMemberSalaryOTAsync(accountId, workspaceId, memberId, request);
+                return Ok(new ApiResponse { Message = "Cap nhat luong va OT thanh cong." });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lấy lương cơ bản và tỷ giá OT của một thành viên trong Workspace.</summary>
+        [HttpGet("{workspaceId}/members/{memberId}/salary-ot")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize(MemberProfilePermissionIds.Manage)]
+        [ProducesResponseType(typeof(MemberSalaryOTResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetMemberSalaryOT(
+            int workspaceId,
+            int memberId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var response = await _workspaceService.GetMemberSalaryOTAsync(accountId, workspaceId, memberId);
+                return Ok(response);
             }
             catch (UnauthorizedAccessException ex)
             {

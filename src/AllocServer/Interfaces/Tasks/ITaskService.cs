@@ -37,6 +37,10 @@ namespace AllocServer.Interfaces.Tasks
             ProjectTask successorTask,
             CreateTaskDependencyRequest request);
 
+        Task<List<TaskDependencyResponse>> GetTaskDependenciesAsync(ProjectTask task);
+
+        Task<bool> DeleteTaskDependencyAsync(int accountId, int dependencyId);
+
         Task DeleteProjectTaskAsync(int accountId, ProjectTask task);
 
         // Comments

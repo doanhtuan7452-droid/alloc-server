@@ -344,6 +344,90 @@ namespace AllocServer.Services.Request_Services
             };
         }
 
+        public async Task<List<LeaveRequestResponse>> GetWorkspaceLeaveRequestsAsync(
+            int accountId,
+            int workspaceId)
+        {
+            ValidatePositiveId(workspaceId, "workspaceId");
+
+            // Kiểm tra xem user có active membership trong workspace không
+            await GetActiveMembershipAsync(accountId, workspaceId);
+
+            var leaveRequests = await _context.LeaveRequests
+                .AsNoTracking()
+                .Include(item => item.WorkspaceMember)
+                .Where(item => item.WorkspaceMember != null && item.WorkspaceMember.WorkspaceID == workspaceId)
+                .OrderByDescending(item => item.CreatedAt)
+                .Select(item => new LeaveRequestResponse
+                {
+                    RequestId = item.RequestID,
+                    WorkspaceId = item.WorkspaceMember != null ? item.WorkspaceMember.WorkspaceID : 0,
+                    WorkspaceMemberId = item.WorkspaceMemberID,
+                    RequesterName = item.WorkspaceMember != null && item.WorkspaceMember.Resource != null
+                        ? item.WorkspaceMember.Resource.FullName
+                        : string.Empty,
+                    ApproverId = item.ApproverID,
+                    ApproverName = item.Approver != null && item.Approver.Resource != null
+                        ? item.Approver.Resource.FullName
+                        : null,
+                    StartDate = item.StartDate,
+                    EndDate = item.EndDate,
+                    Reason = item.Reason,
+                    Status = item.Status,
+                    ApprovalNote = item.ApprovalNote,
+                    ReviewedAt = item.ReviewedAt,
+                    CreatedAt = item.CreatedAt
+                })
+                .ToListAsync();
+
+            return leaveRequests;
+        }
+
+        public async Task<List<OTRequestResponse>> GetWorkspaceOTRequestsAsync(
+            int accountId,
+            int workspaceId)
+        {
+            ValidatePositiveId(workspaceId, "workspaceId");
+
+            // Kiểm tra xem user có active membership trong workspace không
+            await GetActiveMembershipAsync(accountId, workspaceId);
+
+            var otRequests = await _context.OTRequests
+                .AsNoTracking()
+                .Include(item => item.WorkspaceMember)
+                .Where(item => item.WorkspaceMember != null && item.WorkspaceMember.WorkspaceID == workspaceId)
+                .OrderByDescending(item => item.CreatedAt)
+                .Select(item => new OTRequestResponse
+                {
+                    RequestId = item.OTRequestID,
+                    WorkspaceId = item.WorkspaceMember != null ? item.WorkspaceMember.WorkspaceID : 0,
+                    WorkspaceMemberId = item.WorkspaceMemberID,
+                    RequesterName = item.WorkspaceMember != null && item.WorkspaceMember.Resource != null
+                        ? item.WorkspaceMember.Resource.FullName
+                        : string.Empty,
+                    TaskId = item.TaskID,
+                    TaskName = item.Task != null ? item.Task.TaskName : null,
+                    ProjectId = item.ProjectID ?? (item.Task != null ? item.Task.ProjectID : null),
+                    ProjectName = (item.Project != null ? item.Project.ProjectName : null)
+                        ?? (item.Task != null && item.Task.Project != null
+                            ? item.Task.Project.ProjectName
+                            : null),
+                    RequestedDate = item.RequestedDate,
+                    ExpectedHours = item.ExpectedHours,
+                    ApproverId = item.ApproverID,
+                    ApproverName = item.Approver != null && item.Approver.Resource != null
+                        ? item.Approver.Resource.FullName
+                        : null,
+                    Status = item.Status,
+                    ApprovalNote = item.ApprovalNote,
+                    ReviewedAt = item.ReviewedAt,
+                    CreatedAt = item.CreatedAt
+                })
+                .ToListAsync();
+
+            return otRequests;
+        }
+
         private async Task<ActiveMembership> GetActiveMembershipAsync(
             int accountId,
             int workspaceId)

@@ -39,9 +39,19 @@ namespace AllocServer.Services.Message_Services
             await _context.SaveChangesAsync();
 
             var response = await LoadMessageResponseAsync(messageId, includeDeleted: false);
-            await _hubContext.Clients
-                .Group(ConversationHub.BuildConversationGroup(message.ConversationID))
-                .SendAsync("MessageEdited", response);
+
+            var activeMemberIds = await _context.ConversationMembers
+                .Where(cm => cm.ConversationID == message.ConversationID 
+                          && cm.WorkspaceMember.Status == "Active")
+                .Select(cm => cm.MemberID)
+                .ToListAsync();
+
+            foreach (var memberId in activeMemberIds)
+            {
+                await _hubContext.Clients
+                    .Group(ConversationHub.BuildUserGroup(memberId))
+                    .SendAsync("MessageEdited", response);
+            }
 
             return response;
         }
@@ -62,9 +72,19 @@ namespace AllocServer.Services.Message_Services
             await _context.SaveChangesAsync();
 
             var response = await LoadMessageResponseAsync(messageId, includeDeleted: true);
-            await _hubContext.Clients
-                .Group(ConversationHub.BuildConversationGroup(message.ConversationID))
-                .SendAsync("MessageDeleted", response);
+
+            var activeMemberIds = await _context.ConversationMembers
+                .Where(cm => cm.ConversationID == message.ConversationID 
+                          && cm.WorkspaceMember.Status == "Active")
+                .Select(cm => cm.MemberID)
+                .ToListAsync();
+
+            foreach (var memberId in activeMemberIds)
+            {
+                await _hubContext.Clients
+                    .Group(ConversationHub.BuildUserGroup(memberId))
+                    .SendAsync("MessageDeleted", response);
+            }
         }
 
         private async Task<(Message Message, int CurrentMemberId)> LoadMessageForSenderActionAsync(

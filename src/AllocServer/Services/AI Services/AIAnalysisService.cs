@@ -90,14 +90,18 @@ namespace AllocServer.Services.AI_Services
                     billingMonth,
                     effectiveLimit);
 
-                string content;
+                string content = string.Empty;
+                List<AIAllocationAssessmentResultDto>? results = null;
+
                 if (analysisType == "Risk Warning")
                 {
                     content = await GetProjectRiskAnalysisAsync(project);
                 }
                 else if (analysisType == "Resource Suggestion")
                 {
-                    content = await GetResourceAllocationAnalysisAsync(project, request.TargetEntityId, request.Prompt);
+                    var allocationResult = await GetResourceAllocationAnalysisAsync(project, request.TargetEntityId, request.WorkspaceMemberIds);
+                    content = allocationResult.Content;
+                    results = allocationResult.Results;
                 }
                 else
                 {
@@ -124,7 +128,8 @@ namespace AllocServer.Services.AI_Services
                     AnalysisType = log.SuggestionType,
                     Content = log.SuggestionContent,
                     CreatedAt = log.CreatedAt,
-                    RemainingQuota = CalculateRemainingQuota(effectiveLimit, newCount)
+                    RemainingQuota = CalculateRemainingQuota(effectiveLimit, newCount),
+                    Results = results
                 };
             }
             catch
@@ -244,11 +249,11 @@ namespace AllocServer.Services.AI_Services
             
             string planCode = currentLimit?.PlanCode ?? "FREE";
             
-            string provider = "openai";
-            string model = "gpt-4o-mini";
+            string provider = "gemini";
+            string model = "gemini-2.0-flash";
             if (planCode.Equals("PRO", StringComparison.OrdinalIgnoreCase))
             {
-                model = "gpt-4o";
+                model = "gemini-2.0-flash";
             }
 
             // 9. Prepare Python Project Risk request payload
@@ -299,7 +304,10 @@ namespace AllocServer.Services.AI_Services
             );
         }
 
-        private async Task<string> GetResourceAllocationAnalysisAsync(Project project, int? taskId, string? promptWorkspaceMemberId)
+        private async Task<(string Content, List<AIAllocationAssessmentResultDto> Results)> GetResourceAllocationAnalysisAsync(
+            Project project,
+            int? taskId,
+            List<int>? workspaceMemberIds)
         {
             if (taskId == null)
             {
@@ -317,11 +325,7 @@ namespace AllocServer.Services.AI_Services
             }
 
             // 2. Map task fields
-            string taskComplexity = task.Complexity.ToLowerInvariant();
-            if (taskComplexity == "critical")
-            {
-                taskComplexity = "high";
-            }
+            string taskComplexity = task.Complexity.ToLowerInvariant(); // Keep "critical" as Python supports it!
 
             int deadlineDays = 14;
             if (task.StartDate.HasValue && task.EndDate.HasValue)
@@ -364,64 +368,65 @@ namespace AllocServer.Services.AI_Services
             
             string planCode = currentLimit?.PlanCode ?? "FREE";
             
-            string provider = "openai";
-            string model = "gpt-4o-mini";
+            string provider = "gemini";
+            string model = "gemini-2.0-flash";
             if (planCode.Equals("PRO", StringComparison.OrdinalIgnoreCase))
             {
-                model = "gpt-4o";
+                model = "gemini-2.0-flash";
             }
 
-            // Check single vs bulk based on workspaceMemberId parameter
-            int? workspaceMemberId = null;
-            if (int.TryParse(promptWorkspaceMemberId, out var parsedId))
+            // 4. Load Workspace Members (apply filter if selected)
+            var activeMemberData = await (from m in _context.WorkspaceMembers.Include(m => m.Resource)
+                                          join p in _context.WorkspaceMemberProfiles on m.WorkspaceMemberID equals p.WorkspaceMemberID
+                                          where m.WorkspaceID == project.WorkspaceID 
+                                             && m.Status == "Active"
+                                             && m.Resource.IsDeleted == false
+                                             && p.IsDeleted == false
+                                          select new { Member = m, Profile = p })
+                                         .ToListAsync();
+
+            if (workspaceMemberIds != null && workspaceMemberIds.Any())
             {
-                workspaceMemberId = parsedId;
+                activeMemberData = activeMemberData
+                    .Where(d => workspaceMemberIds.Contains(d.Member.WorkspaceMemberID))
+                    .ToList();
             }
 
-            if (workspaceMemberId.HasValue)
+            if (!activeMemberData.Any())
             {
-                // Single assessment
-                var memberData = await (from m in _context.WorkspaceMembers.Include(m => m.Resource)
-                                        join p in _context.WorkspaceMemberProfiles on m.WorkspaceMemberID equals p.WorkspaceMemberID
-                                        where m.WorkspaceMemberID == workspaceMemberId.Value 
-                                           && m.WorkspaceID == project.WorkspaceID 
-                                           && m.Status == "Active" 
-                                           && m.Resource.IsDeleted == false
-                                           && p.IsDeleted == false
-                                        select new { Member = m, Profile = p })
-                                       .FirstOrDefaultAsync();
+                throw new InvalidOperationException("Khong co nhan su nao dang hoat dong trong Workspace de danh gia.");
+            }
 
-                if (memberData == null)
+            // 5. Construct Python request payload with ALL profile fields to prevent confidence penalties
+            var employeesPayload = new List<PythonEmployeeAssessmentInfo>();
+            foreach (var data in activeMemberData)
+            {
+                var m = data.Member;
+                var p = data.Profile;
+
+                double expYears = (double)p.ExperienceYears;
+                double techScore = (double)p.TechnicalSkillScore;
+                double commScore = (double)p.CommunicationScore;
+                double leadScore = (double)p.LeadershipScore;
+                double pbScore = (double)p.ProblemSolvingScore;
+                double attRate = (double)p.AttendanceRate;
+                double confRate = (double)p.ConflictRate;
+                string eduLevel = p.EducationLevel?.ToLowerInvariant() ?? "bachelor";
+
+                string sLevel = "medium";
+                if (techScore < 40.0)
                 {
-                    throw new KeyNotFoundException("Khong tim thay member hoac member khong hoat dong trong Workspace.");
+                    sLevel = "low";
+                }
+                else if (techScore >= 75.0)
+                {
+                    sLevel = "high";
                 }
 
-                var member = memberData.Member;
-                var profile = memberData.Profile;
-
-                double experienceYears = (double)profile.ExperienceYears;
-                string educationLevel = profile.EducationLevel?.ToLowerInvariant() ?? "bachelor";
-                double technicalSkillScore = (double)profile.TechnicalSkillScore;
-                double communicationScore = (double)profile.CommunicationScore;
-                double leadershipScore = (double)profile.LeadershipScore;
-                double problemSolvingScore = (double)profile.ProblemSolvingScore;
-                double attendanceRate = (double)profile.AttendanceRate;
-                double conflictRate = (double)profile.ConflictRate;
-
-                string skillLevel = "medium";
-                if (technicalSkillScore < 40.0)
+                string perfRating = "good";
+                if (!string.IsNullOrEmpty(p.PerformanceRating))
                 {
-                    skillLevel = "low";
-                }
-                else if (technicalSkillScore >= 75.0)
-                {
-                    skillLevel = "high";
-                }
-
-                string performanceRating = "good";
-                if (!string.IsNullOrEmpty(profile.PerformanceRating))
-                {
-                    performanceRating = profile.PerformanceRating.ToUpperInvariant() switch
+                    perfRating = p.PerformanceRating.ToUpperInvariant() switch
                     {
                         "POOR" => "poor",
                         "AVERAGE" => "good",
@@ -430,196 +435,129 @@ namespace AllocServer.Services.AI_Services
                     };
                 }
 
-                var payload = new PythonPersonnelAssessmentRequest
+                employeesPayload.Add(new PythonEmployeeAssessmentInfo
                 {
-                    RequestType = "single",
-                    ExperienceYears = experienceYears,
-                    EducationLevel = educationLevel,
-                    SkillLevel = skillLevel,
-                    TechnicalSkillScore = technicalSkillScore,
-                    CommunicationScore = communicationScore,
-                    LeadershipScore = leadershipScore,
-                    ProblemSolvingScore = problemSolvingScore,
-                    TaskComplexity = taskComplexity,
-                    RequiredSkillLevel = requiredSkillLevel,
-                    DeadlineDays = deadlineDays,
-                    WorkloadHours = workloadHours,
-                    TaskPriority = taskPriority,
-                    TeamSize = teamSize,
-                    AttendanceRate = attendanceRate,
-                    PerformanceRating = performanceRating,
-                    ConflictRate = conflictRate,
-                    Provider = provider,
-                    Model = model,
-                    Temperature = 0.7
-                };
-
-                var response = await _llmClient.PostAsJsonAsync("api/v1/allocation/assess", payload);
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw new InvalidOperationException($"Loi tu AI Server: {response.StatusCode}");
-                }
-
-                var result = await response.Content.ReadFromJsonAsync<PythonPersonnelAssessmentResponse>();
-                if (result == null)
-                {
-                    throw new InvalidOperationException("Khong the doc phan hoi tu AI Server.");
-                }
-
-                string successFactorsStr = result.SuccessFactors != null && result.SuccessFactors.Any() 
-                    ? string.Join(Environment.NewLine, result.SuccessFactors.Select(f => $"- {f}")) 
-                    : "- Không ghi nhận";
-
-                string challengesStr = result.PotentialChallenges != null && result.PotentialChallenges.Any() 
-                    ? string.Join(Environment.NewLine, result.PotentialChallenges.Select(c => $"- {c}")) 
-                    : "- Không ghi nhận";
-
-                return $"""
-                    ### 📊 Kết Quả Đánh Giá Nhân Sự (Model: {model})
-                    * **Nhân sự:** {member.Resource.FullName} (Mã: {member.EmployeeCode})
-                    * **Kết quả đánh giá:** {result.PredictionLabel} (Độ tin cậy: {result.ConfidenceScore * 100:F1}%)
-                    * **Điểm số phù hợp (Fit Score):** {result.FitPercentage:F1}%
-                    * **Trạng thái:** {result.BusinessStatusText}
-                    
-                    **💡 Nhận định chi tiết:**
-                    {result.LlmInsight}
-                    
-                    **🌟 Các yếu tố thuận lợi:**
-                    {successFactorsStr}
-                    
-                    **⚠️ Khó khăn/Thách thức tiềm ẩn:**
-                    {challengesStr}
-                    """;
+                    EmployeeId = m.EmployeeCode,
+                    EmployeeName = m.Resource.FullName,
+                    ExperienceYears = expYears,
+                    SkillLevel = sLevel,
+                    TechnicalSkillScore = techScore,
+                    CommunicationScore = commScore,
+                    EducationLevel = eduLevel,
+                    LeadershipScore = leadScore,
+                    ProblemSolvingScore = pbScore,
+                    AttendanceRate = attRate,
+                    ConflictRate = confRate,
+                    PerformanceRating = perfRating
+                });
             }
-            else
+
+            var payload = new PythonBulkAssessmentRequest
             {
-                // Bulk assessment
-                var activeMemberData = await (from m in _context.WorkspaceMembers.Include(m => m.Resource)
-                                              join p in _context.WorkspaceMemberProfiles on m.WorkspaceMemberID equals p.WorkspaceMemberID
-                                              where m.WorkspaceID == project.WorkspaceID 
-                                                 && m.Status == "Active"
-                                                 && m.Resource.IsDeleted == false
-                                                 && p.IsDeleted == false
-                                              select new { Member = m, Profile = p })
-                                             .ToListAsync();
+                RequestType = "bulk",
+                TaskComplexity = taskComplexity,
+                DeadlineDays = deadlineDays,
+                RequiredSkillLevel = requiredSkillLevel,
+                WorkloadHours = workloadHours,
+                TaskPriority = taskPriority,
+                TeamSize = teamSize,
+                Employees = employeesPayload,
+                Provider = provider,
+                Model = model,
+                Temperature = 0.7
+            };
 
-                if (!activeMemberData.Any())
+            // 6. Call Python API
+            var response = await _llmClient.PostAsJsonAsync("api/v1/allocation/assess", payload);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"Loi tu AI Server: {response.StatusCode}");
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<PythonBulkAssessmentResponse>();
+            if (result == null)
+            {
+                throw new InvalidOperationException("Khong the doc phan hoi tu AI Server.");
+            }
+
+            // Match back employee names and codes if missing
+            for (int i = 0; i < result.Results.Count; i++)
+            {
+                var res = result.Results[i];
+                if (string.IsNullOrEmpty(res.EmployeeId) && i < payload.Employees.Count)
                 {
-                    throw new InvalidOperationException("Khong co nhan su nao dang hoat dong trong Workspace de danh gia.");
+                    res.EmployeeId = payload.Employees[i].EmployeeId;
                 }
-
-                var employeesPayload = new List<PythonEmployeeAssessmentInfo>();
-                foreach (var data in activeMemberData)
+                if (string.IsNullOrEmpty(res.EmployeeName) && i < payload.Employees.Count)
                 {
-                    var m = data.Member;
-                    var p = data.Profile;
+                    res.EmployeeName = payload.Employees[i].EmployeeName;
+                }
+            }
 
-                    double expYears = (double)p.ExperienceYears;
-                    double techScore = (double)p.TechnicalSkillScore;
-                    double commScore = (double)p.CommunicationScore;
+            var rankedResults = result.Results
+                .OrderByDescending(r => r.FitPercentage)
+                .ToList();
 
-                    string sLevel = "medium";
-                    if (techScore < 40.0)
+            // 7. Map to DTO results for Client
+            var resultsDtoList = new List<AIAllocationAssessmentResultDto>();
+            foreach (var res in rankedResults)
+            {
+                var memberInfo = activeMemberData.FirstOrDefault(d => d.Member.EmployeeCode == res.EmployeeId);
+                if (memberInfo != null)
+                {
+                    resultsDtoList.Add(new AIAllocationAssessmentResultDto
                     {
-                        sLevel = "low";
-                    }
-                    else if (techScore >= 75.0)
-                    {
-                        sLevel = "high";
-                    }
-
-                    employeesPayload.Add(new PythonEmployeeAssessmentInfo
-                    {
-                        EmployeeId = m.EmployeeCode,
-                        EmployeeName = m.Resource.FullName,
-                        ExperienceYears = expYears,
-                        SkillLevel = sLevel,
-                        TechnicalSkillScore = techScore,
-                        CommunicationScore = commScore
+                        WorkspaceMemberId = memberInfo.Member.WorkspaceMemberID,
+                        EmployeeCode = res.EmployeeId ?? string.Empty,
+                        FullName = memberInfo.Member.Resource.FullName,
+                        FitPercentage = res.FitPercentage,
+                        PredictionLabel = res.PredictionLabel,
+                        BusinessStatusText = res.BusinessStatusText,
+                        LlmInsight = res.LlmInsight,
+                        SuccessFactors = res.SuccessFactors ?? new(),
+                        PotentialChallenges = res.PotentialChallenges ?? new()
                     });
                 }
-
-                var payload = new PythonBulkAssessmentRequest
-                {
-                    RequestType = "bulk",
-                    TaskComplexity = taskComplexity,
-                    DeadlineDays = deadlineDays,
-                    RequiredSkillLevel = requiredSkillLevel,
-                    WorkloadHours = workloadHours,
-                    TaskPriority = taskPriority,
-                    TeamSize = teamSize,
-                    Employees = employeesPayload,
-                    Provider = provider,
-                    Model = model,
-                    Temperature = 0.7
-                };
-
-                var response = await _llmClient.PostAsJsonAsync("api/v1/allocation/assess", payload);
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw new InvalidOperationException($"Loi tu AI Server: {response.StatusCode}");
-                }
-
-                var result = await response.Content.ReadFromJsonAsync<PythonBulkAssessmentResponse>();
-                if (result == null)
-                {
-                    throw new InvalidOperationException("Khong the doc phan hoi tu AI Server.");
-                }
-
-                // Match back employee names and codes if missing
-                for (int i = 0; i < result.Results.Count; i++)
-                {
-                    var res = result.Results[i];
-                    if (string.IsNullOrEmpty(res.EmployeeId) && i < payload.Employees.Count)
-                    {
-                        res.EmployeeId = payload.Employees[i].EmployeeId;
-                    }
-                    if (string.IsNullOrEmpty(res.EmployeeName) && i < payload.Employees.Count)
-                    {
-                        res.EmployeeName = payload.Employees[i].EmployeeName;
-                    }
-                }
-
-                var rankedResults = result.Results
-                    .OrderByDescending(r => r.FitPercentage)
-                    .ToList();
-
-                var tableBuilder = new StringBuilder();
-                tableBuilder.AppendLine("| Hạng | Mã nhân viên | Tên nhân sự | Đánh giá | Điểm phù hợp | Độ tin cậy | Trạng thái |");
-                tableBuilder.AppendLine("|---|---|---|---|---|---|---|");
-
-                for (int i = 0; i < rankedResults.Count; i++)
-                {
-                    var res = rankedResults[i];
-                    tableBuilder.AppendLine($"| {i + 1} | {res.EmployeeId} | {res.EmployeeName} | {res.PredictionLabel} | {res.FitPercentage:F1}% | {res.ConfidenceScore * 100:F1}% | {res.BusinessStatusText} |");
-                }
-
-                var detailsBuilder = new StringBuilder();
-                foreach (var res in rankedResults)
-                {
-                    string successStr = res.SuccessFactors != null && res.SuccessFactors.Any() ? string.Join(", ", res.SuccessFactors) : "Không ghi nhận";
-                    string challengesStr = res.PotentialChallenges != null && res.PotentialChallenges.Any() ? string.Join(", ", res.PotentialChallenges) : "Không ghi nhận";
-
-                    detailsBuilder.AppendLine($"""
-                        #### 👤 {res.EmployeeName} ({res.EmployeeId})
-                        - **Đánh giá:** {res.PredictionLabel} ({res.BusinessStatusText}) - **Điểm phù hợp:** {res.FitPercentage:F1}%
-                        - **Nhận định:** {res.LlmInsight}
-                        - **Yếu tố thuận lợi:** {successStr}
-                        - **Thử thách:** {challengesStr}
-                        
-                        """);
-                }
-
-                return $"""
-                    ### 📊 Bảng Xếp Hạng Mức Độ Phù Hợp Nhân Sự (Model: {model})
-                    
-                    {tableBuilder}
-                    
-                    ### 💡 Chi tiết nhận định từ AI:
-                    
-                    {detailsBuilder}
-                    """;
             }
+
+            // 8. Generate Audit Markdown for database logs
+            var tableBuilder = new StringBuilder();
+            tableBuilder.AppendLine("| Hạng | Mã nhân viên | Tên nhân sự | Đánh giá | Điểm phù hợp | Độ tin cậy | Trạng thái |");
+            tableBuilder.AppendLine("|---|---|---|---|---|---|---|");
+
+            for (int i = 0; i < rankedResults.Count; i++)
+            {
+                var res = rankedResults[i];
+                tableBuilder.AppendLine($"| {i + 1} | {res.EmployeeId} | {res.EmployeeName} | {res.PredictionLabel} | {res.FitPercentage:F1}% | {res.ConfidenceScore * 100:F1}% | {res.BusinessStatusText} |");
+            }
+
+            var detailsBuilder = new StringBuilder();
+            foreach (var res in rankedResults)
+            {
+                string successStr = res.SuccessFactors != null && res.SuccessFactors.Any() ? string.Join(", ", res.SuccessFactors) : "Không ghi nhận";
+                string challengesStr = res.PotentialChallenges != null && res.PotentialChallenges.Any() ? string.Join(", ", res.PotentialChallenges) : "Không ghi nhận";
+
+                detailsBuilder.AppendLine($"""
+                    #### 👤 {res.EmployeeName} ({res.EmployeeId})
+                    - **Đánh giá:** {res.PredictionLabel} ({res.BusinessStatusText}) - **Điểm phù hợp:** {res.FitPercentage:F1}%
+                    - **Nhận định:** {res.LlmInsight}
+                    - **Yếu tố thuận lợi:** {successStr}
+                    - **Thử thách:** {challengesStr}
+                    
+                    """);
+            }
+
+            string content = $"""
+                ### 📊 Bảng Xếp Hạng Mức Độ Phù Hợp Nhân Sự (Model: {model})
+                
+                {tableBuilder}
+                
+                ### 💡 Chi tiết nhận định từ AI:
+                
+                {detailsBuilder}
+                """;
+
+            return (content, resultsDtoList);
         }
 
         private async Task<Project> LoadProjectAsync(int projectId)

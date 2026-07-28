@@ -21,5 +21,23 @@ namespace AllocServer.DTOs.AIInsights
 
         [JsonPropertyName("communication_score")]
         public double CommunicationScore { get; set; }
+
+        [JsonPropertyName("education_level")]
+        public string EducationLevel { get; set; } = "bachelor";
+
+        [JsonPropertyName("leadership_score")]
+        public double LeadershipScore { get; set; }
+
+        [JsonPropertyName("problem_solving_score")]
+        public double ProblemSolvingScore { get; set; }
+
+        [JsonPropertyName("attendance_rate")]
+        public double AttendanceRate { get; set; }
+
+        [JsonPropertyName("performance_rating")]
+        public string PerformanceRating { get; set; } = "good";
+
+        [JsonPropertyName("conflict_rate")]
+        public double ConflictRate { get; set; }
     }
 }

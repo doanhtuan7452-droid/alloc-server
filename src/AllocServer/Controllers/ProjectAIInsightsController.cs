@@ -88,10 +88,9 @@ namespace AllocServer.Controllers
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> AssessPersonnelAllocation(
             int projectId,
-            [FromQuery] int taskId,
-            [FromQuery] int? workspaceMemberId = null)
+            [FromBody] AIAllocationAssessmentRequest request)
         {
-            if (taskId <= 0)
+            if (request == null || request.TaskId <= 0)
             {
                 return BadRequest(new ApiResponse { Message = "taskId phai lon hon 0." });
             }
@@ -107,8 +106,8 @@ namespace AllocServer.Controllers
                 {
                     ProjectId = projectId,
                     AnalysisType = "Resource Suggestion",
-                    TargetEntityId = taskId,
-                    Prompt = workspaceMemberId?.ToString()
+                    TargetEntityId = request.TaskId,
+                    WorkspaceMemberIds = request.WorkspaceMemberIds
                 };
                 
                 var response = await _aiAnalysisService.AnalyzeAsync(accountId, askRequest);

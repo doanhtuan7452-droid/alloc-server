@@ -246,6 +246,56 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay danh sach dependency cua task.</summary>
+        [HttpGet("{taskId}/dependencies")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.View)]
+        [ProducesResponseType(typeof(List<TaskDependencyResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetTaskDependencies(int taskId)
+        {
+            if (!TryGetCurrentTask(out var task))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Task." });
+            }
+
+            var response = await _taskService.GetTaskDependenciesAsync(task);
+            return Ok(response);
+        }
+
+        /// <summary>Xoa dependency.</summary>
+        [HttpDelete("dependencies/{dependencyId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeleteTaskDependency(int dependencyId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var deleted = await _taskService.DeleteTaskDependencyAsync(accountId, dependencyId);
+                if (!deleted)
+                {
+                    return NotFound(new ApiResponse { Message = "Khong tim thay dependency." });
+                }
+
+                return NoContent();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+
         /// <summary>Lay danh sach comment cua task.</summary>
         [HttpGet("{taskId}/comments")]
         [Authorize]

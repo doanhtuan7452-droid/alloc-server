@@ -58,6 +58,27 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
 
             if (existingProfile != null)
             {
+                if (existingProfile.IsDeleted)
+                {
+                    existingProfile.IsDeleted = false;
+                    existingProfile.DeletedAt = null;
+                    existingProfile.DeletedBy = null;
+                    existingProfile.ExperienceYears = request.PriorExperienceYears;
+                    existingProfile.EducationLevel = request.EducationLevel;
+                    existingProfile.TechnicalSkillScore = 0;
+                    existingProfile.CommunicationScore = 0;
+                    existingProfile.LeadershipScore = 0;
+                    existingProfile.ProblemSolvingScore = 0;
+                    existingProfile.AttendanceRate = 100.00m;
+                    existingProfile.ConflictRate = 0.00m;
+                    existingProfile.PerformanceRating = "Average";
+                    existingProfile.LastEvaluatedAt = DateTime.UtcNow;
+
+                    await _context.SaveChangesAsync();
+
+                    existingProfile.WorkspaceMember = member;
+                    return MapToResponse(existingProfile);
+                }
                 throw new InvalidOperationException("ProfileAlreadyExists");
             }
 
@@ -703,6 +724,30 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
             await _context.SaveChangesAsync();
 
             return MapToMemberEvaluationResponse(evaluation);
+        }
+
+        public async Task<List<MemberEvaluationResponse>> GetMemberEvaluationsAsync(int workspaceId, int cycleId)
+        {
+            var evaluations = await _context.MemberEvaluations
+                .AsNoTracking()
+                .Where(e => e.CycleID == cycleId && e.Reviewee.WorkspaceID == workspaceId)
+                .Select(e => new MemberEvaluationResponse
+                {
+                    EvaluationID = e.EvaluationID,
+                    CycleID = e.CycleID,
+                    RevieweeID = e.RevieweeID,
+                    ReviewerID = e.ReviewerID,
+                    EvaluationType = e.EvaluationType,
+                    CommunicationScore = e.CommunicationScore,
+                    LeadershipScore = e.LeadershipScore,
+                    ProblemSolvingScore = e.ProblemSolvingScore,
+                    FeedbackNotes = e.FeedbackNotes,
+                    SubmittedAt = e.SubmittedAt,
+                    Status = e.Status
+                })
+                .ToListAsync();
+
+            return evaluations;
         }
 
         private static ReviewCycleResponse MapToReviewCycleResponse(ReviewCycle rc)

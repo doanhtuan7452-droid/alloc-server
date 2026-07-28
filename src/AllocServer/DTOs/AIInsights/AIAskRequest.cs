@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
@@ -21,5 +22,8 @@ namespace AllocServer.DTOs.AIInsights
         [StringLength(4000, ErrorMessage = "prompt toi da 4000 ky tu.")]
         [JsonPropertyName("prompt")]
         public string? Prompt { get; set; }
+
+        [JsonPropertyName("workspaceMemberIds")]
+        public List<int>? WorkspaceMemberIds { get; set; }
     }
 }

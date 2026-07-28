@@ -120,6 +120,34 @@ namespace AllocServer.Controllers
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
         public async Task<IActionResult> CompleteReviewCycle(int workspaceId, int cycleId)
         {
+            var cycleRecord = await _context.ReviewCycles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(rc => rc.CycleID == cycleId && rc.WorkspaceID == workspaceId && !rc.IsDeleted);
+
+            if (cycleRecord == null)
+            {
+                return NotFound(new ApiResponse { Message = "ReviewCycleNotFound" });
+            }
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            if (today < cycleRecord.EndDate)
+            {
+                if (!TryGetCurrentAccountId(out var accountId))
+                {
+                    return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+                }
+
+                var member = await _context.WorkspaceMembers
+                    .AsNoTracking()
+                    .Include(m => m.WorkspaceRole)
+                    .FirstOrDefaultAsync(m => m.Resource.AccountID == accountId && m.WorkspaceID == workspaceId && m.Status == "Active");
+
+                if (member == null || member.WorkspaceRole?.RoleName != "Owner")
+                {
+                    return StatusCode(403, new ApiResponse { Message = "Chi co Owner moi duoc phep hoan thanh chu ky truoc han." });
+                }
+            }
+
             try
             {
                 var cycle = await _profileService.CompleteReviewCycleAsync(workspaceId, cycleId);
@@ -135,11 +163,23 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay tat ca danh gia trong chu ky.</summary>
+        [HttpGet("{cycleId}/evaluations")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize(MemberProfilePermissionIds.View)]
+        [ProducesResponseType(typeof(List<MemberEvaluationResponse>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetEvaluations(int workspaceId, int cycleId)
+        {
+            var evals = await _profileService.GetMemberEvaluationsAsync(workspaceId, cycleId);
+            return Ok(evals);
+        }
+
         /// <summary>Nop danh gia cho mot thanh vien trong chu ky.</summary>
         [HttpPost("{cycleId}/evaluations")]
         [Authorize]
         [RequireActiveAccount]
-        [WorkspaceAuthorize(MemberProfilePermissionIds.Manage)]
+        [WorkspaceAuthorize(MemberProfilePermissionIds.View)]
         [ProducesResponseType(typeof(MemberEvaluationResponse), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]

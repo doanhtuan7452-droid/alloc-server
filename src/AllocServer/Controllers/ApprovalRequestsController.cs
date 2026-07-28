@@ -161,6 +161,68 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Lay danh sach don xin nghi trong workspace.</summary>
+        [HttpGet("workspaces/{workspaceId}/leave-requests")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(List<LeaveRequestResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetLeaveRequests(int workspaceId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var response = await _requestService.GetWorkspaceLeaveRequestsAsync(accountId, workspaceId);
+                return Ok(response);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay danh sach don OT trong workspace.</summary>
+        [HttpGet("workspaces/{workspaceId}/ot-requests")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(List<OTRequestResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetOTRequests(int workspaceId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var response = await _requestService.GetWorkspaceOTRequestsAsync(accountId, workspaceId);
+                return Ok(response);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
+
         private bool TryGetCurrentAccountId(out int accountId)
         {
             if (HttpContext.Items.TryGetValue(RequireActiveAccountFilter.CurrentAccountIdItemKey, out var item)

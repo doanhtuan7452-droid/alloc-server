@@ -596,6 +596,49 @@ namespace AllocServer.Services.Task_Services
             return MapTaskDependency(dependency);
         }
 
+        public async Task<List<TaskDependencyResponse>> GetTaskDependenciesAsync(ProjectTask task)
+        {
+            var dependencies = await _context.TaskDependencies
+                .AsNoTracking()
+                .Where(d => d.SuccessorTaskID == task.TaskID)
+                .ToListAsync();
+
+            return dependencies.Select(MapTaskDependency).ToList();
+        }
+
+        public async Task<bool> DeleteTaskDependencyAsync(int accountId, int dependencyId)
+        {
+            var dependency = await _context.TaskDependencies
+                .Include(d => d.SuccessorTask)
+                    .ThenInclude(t => t.Project)
+                .FirstOrDefaultAsync(d => d.DependencyID == dependencyId);
+
+            if (dependency == null)
+            {
+                return false;
+            }
+
+            var workspaceId = dependency.SuccessorTask!.Project!.WorkspaceID;
+            var currentMemberId = await GetWorkspaceMemberIdAsync(accountId, workspaceId);
+
+            var currentMember = await _context.WorkspaceMembers
+                .Include(m => m.WorkspaceRole)
+                .FirstOrDefaultAsync(m => m.WorkspaceMemberID == currentMemberId);
+
+            var isOwner = currentMember?.WorkspaceRole?.RoleName == "Owner";
+            var hasUpdatePermission = await _context.RolePermissions
+                .AnyAsync(rp => rp.WorkspaceRoleID == currentMember!.WorkspaceRoleID && rp.PermissionID == TaskPermissionIds.Update);
+
+            if (!isOwner && !hasUpdatePermission)
+            {
+                throw new UnauthorizedAccessException("UnauthorizedDependencyDelete");
+            }
+
+            _context.TaskDependencies.Remove(dependency);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
         public async Task DeleteProjectTaskAsync(int accountId, ProjectTask task)
         {
             var hasTimesheets = await _context.Timesheets

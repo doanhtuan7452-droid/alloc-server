@@ -20,5 +20,10 @@ namespace AllocServer.Interfaces.Risks
             CreateRiskMitigationRequest request);
 
         Task<List<RiskLifecycleResponse>> GetRiskLifecycleAsync(Risk risk);
+
+        Task<RiskDetailResponse> UpdateRiskAsync(
+            int accountId,
+            Risk risk,
+            UpdateRiskRequest request);
     }
 }

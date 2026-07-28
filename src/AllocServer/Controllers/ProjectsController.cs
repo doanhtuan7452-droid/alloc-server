@@ -424,6 +424,47 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Ghi nhan doanh thu moi.</summary>
+        [HttpPost("{projectId}/revenues")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProjectAuthorize(RevenuePermissionIds.Create)]
+        [ProducesResponseType(typeof(RevenueDetailResponse), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> CreateProjectRevenue(
+            int projectId,
+            [FromBody] CreateRevenueRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            if (!TryGetCurrentProject(out var project))
+            {
+                return NotFound(new ApiResponse { Message = "Khong tim thay Project." });
+            }
+
+            try
+            {
+                var revenue = await _revenueService.CreateProjectRevenueAsync(
+                    accountId,
+                    project,
+                    request);
+
+                return StatusCode(201, revenue);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
         /// <summary>Lay danh sach rui ro du an.</summary>
         [HttpGet("{projectId}/risks")]
         [Authorize]

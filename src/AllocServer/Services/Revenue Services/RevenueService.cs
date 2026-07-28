@@ -118,6 +118,54 @@ namespace AllocServer.Services.Revenue_Services
             };
         }
 
+        public async Task<RevenueDetailResponse> CreateProjectRevenueAsync(
+            int accountId,
+            Project project,
+            CreateRevenueRequest request)
+        {
+            if (request.Amount <= 0 || request.Amount > MaxMoneyAmount)
+            {
+                throw new ArgumentException("InvalidAmount");
+            }
+
+            var expectedDate = request.ExpectedDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+
+            if (expectedDate < project.StartDate)
+            {
+                throw new ArgumentException("RevenueDateBeforeProjectStart");
+            }
+
+            if (expectedDate > project.EndDate)
+            {
+                throw new ArgumentException("RevenueDateAfterProjectEnd");
+            }
+
+            var type = NormalizeRevenueType(request.RevenueType) ?? "Fixed Price";
+
+            var revenue = new Revenue
+            {
+                ProjectID = project.ProjectID,
+                RevenueType = type,
+                Amount = request.Amount,
+                ExpectedDate = expectedDate,
+                Status = "Received"
+            };
+
+            _context.Revenues.Add(revenue);
+            await _context.SaveChangesAsync();
+
+            return new RevenueDetailResponse
+            {
+                RevenueId = revenue.RevenueID,
+                ProjectId = revenue.ProjectID,
+                ProjectName = project.ProjectName,
+                Type = revenue.RevenueType,
+                Amount = revenue.Amount,
+                ExpectedDate = revenue.ExpectedDate,
+                Status = revenue.Status
+            };
+        }
+
         private static void ValidateDateRange(DateOnly? expectedFromDate, DateOnly? expectedToDate)
         {
             if (expectedFromDate != null

@@ -24,6 +24,7 @@ namespace AllocServer.Extensions
             (ExpensePermissionIds.Create, "Create project expenses"),
             // Revenues
             (RevenuePermissionIds.View, "View project revenues"),
+            (RevenuePermissionIds.Create, "Create project revenues"),
             // Requests
             (RequestPermissionIds.Approve, "Approve or reject workspace requests"),
             // Risks

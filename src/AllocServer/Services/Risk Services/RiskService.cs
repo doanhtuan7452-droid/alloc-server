@@ -508,6 +508,181 @@ namespace AllocServer.Services.Risk_Services
             return MapMitigation(mitigation);
         }
 
+        public async Task<RiskDetailResponse> UpdateRiskAsync(
+            int accountId,
+            Risk risk,
+            UpdateRiskRequest request)
+        {
+            // Validate RiskName
+            var riskName = NormalizeOptionalString(request.RiskName);
+            if (riskName == null)
+            {
+                throw new ArgumentException("RiskNameRequired");
+            }
+
+            if (riskName.Length > 255)
+            {
+                throw new ArgumentException("RiskNameMaxLength");
+            }
+
+            // Validate Category
+            string? category = null;
+            if (!string.IsNullOrWhiteSpace(request.Category))
+            {
+                category = NormalizeCategory(request.Category);
+                if (category == null)
+                {
+                    throw new ArgumentException(
+                        "Category chi nhan Schedule, Financial, Resource, Technical hoac External.");
+                }
+            }
+
+            // Validate Probability & Impact
+            if (request.Probability < 1 || request.Probability > 5)
+            {
+                throw new ArgumentException("InvalidRiskProbability");
+            }
+
+            if (request.Impact < 1 || request.Impact > 5)
+            {
+                throw new ArgumentException("InvalidRiskImpact");
+            }
+
+            // Validate Status
+            var status = NormalizeStatus(request.Status, allowDefault: false);
+            if (status == null)
+            {
+                throw new ArgumentException(
+                    "Status chi nhan Identified, Assessed, Mitigation Planned, In Progress, Realized hoac Closed.");
+            }
+
+            // Validate EstimatedFinancialImpact & ActualFinancialImpact
+            if (request.EstimatedFinancialImpact < 0 || request.EstimatedFinancialImpact > MaxMoneyAmount)
+            {
+                throw new ArgumentException("InvalidEstimatedFinancialImpact");
+            }
+
+            if (request.ActualFinancialImpact < 0 || request.ActualFinancialImpact > MaxMoneyAmount)
+            {
+                throw new ArgumentException("InvalidActualFinancialImpact");
+            }
+
+            // Validate TaskID — must belong to same project and not soft-deleted
+            if (request.TaskId != null)
+            {
+                var taskExists = await _context.ProjectTasks
+                    .AsNoTracking()
+                    .AnyAsync(task =>
+                        task.TaskID == request.TaskId.Value
+                        && task.ProjectID == risk.ProjectID);
+
+                if (!taskExists)
+                {
+                    throw new ArgumentException(
+                        "Task khong ton tai hoac khong thuoc project nay.");
+                }
+            }
+
+            // Validate OwnerID — must be active workspace member in project's workspace
+            if (request.OwnerId != null)
+            {
+                var isValidOwner = await _context.WorkspaceMembers
+                    .AsNoTracking()
+                    .AnyAsync(member =>
+                        member.WorkspaceMemberID == request.OwnerId.Value
+                        && member.WorkspaceID == risk.Project!.WorkspaceID
+                        && member.Status == "Active"
+                        && !member.Workspace.IsDeleted
+                        && !member.Resource.IsDeleted
+                        && _context.Accounts.Any(account =>
+                            account.AccountID == member.Resource.AccountID));
+
+                if (!isValidOwner)
+                {
+                    throw new ArgumentException(
+                        "Owner khong ton tai, khong active hoac khong thuoc workspace cua project.");
+                }
+            }
+
+            // Resolve actorMemberId from accountId
+            var actorMemberId = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .Where(member =>
+                    member.Resource.AccountID == accountId
+                    && member.WorkspaceID == risk.Project!.WorkspaceID
+                    && member.Status == "Active")
+                .Select(member => member.WorkspaceMemberID)
+                .FirstOrDefaultAsync();
+
+            if (actorMemberId == 0)
+            {
+                throw new UnauthorizedAccessException(
+                    "Khong tim thay thanh vien active trong workspace.");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var oldStatus = risk.Status;
+                var oldScore = risk.RiskScore;
+                var newScore = request.Probability * request.Impact;
+
+                // Update properties
+                risk.RiskName = riskName;
+                risk.Description = NormalizeNullableText(request.Description);
+                risk.Category = category;
+                risk.Probability = request.Probability;
+                risk.Impact = request.Impact;
+                risk.EstimatedFinancialImpact = request.EstimatedFinancialImpact;
+                risk.ActualFinancialImpact = request.ActualFinancialImpact;
+                risk.Status = status;
+                risk.OwnerID = request.OwnerId;
+                risk.TaskID = request.TaskId;
+                risk.UpdatedAt = DateTime.UtcNow;
+
+                // Write lifecycle log if status or score changed
+                if (oldStatus != status || oldScore != newScore)
+                {
+                    _context.RiskLifecycles.Add(new RiskLifecycle
+                    {
+                        RiskID = risk.RiskID,
+                        ChangedByMemberID = actorMemberId,
+                        OldStatus = oldStatus,
+                        NewStatus = status,
+                        OldScore = oldScore,
+                        NewScore = newScore,
+                        ChangeNote = "Cap nhat chi tiet rui ro."
+                    });
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            // Reload entity to get computed column RiskScore from database
+            await _context.Entry(risk).ReloadAsync();
+
+            // Publish risk updated domain event notification
+            var riskEvent = new RiskNotificationEvent(
+                riskId: risk.RiskID,
+                riskName: risk.RiskName,
+                projectId: risk.ProjectID,
+                projectName: risk.Project!.ProjectName,
+                recipientMemberId: risk.OwnerID,
+                actorMemberId: actorMemberId,
+                actionType: "Updated",
+                message: $"Risk '{risk.RiskName}' (Status: {risk.Status}, Score: {risk.RiskScore}) has been updated in project '{risk.Project.ProjectName}'."
+            );
+            await _eventPublisher.PublishAsync(riskEvent);
+
+            return MapRisk(risk, risk.Project.ProjectName);
+        }
+
         public async Task<List<RiskLifecycleResponse>> GetRiskLifecycleAsync(Risk risk)
         {
             return await _context.RiskLifecycles

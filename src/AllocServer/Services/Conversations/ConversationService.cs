@@ -394,17 +394,25 @@ namespace AllocServer.Services.Conversations
             }
 
             var response = await LoadMessageResponseAsync(message.MessageID, includeDeleted: false);
-            await _hubContext.Clients
-                .Group(ConversationHub.BuildConversationGroup(conversationId))
-                .SendAsync("MessageCreated", response);
 
-            // Gửi thông báo cho các thành viên khác trong nhóm chat
-            var otherMemberIds = await _context.ConversationMembers
+            // Gửi sự kiện realtime cho tất cả thành viên trong cuộc hội thoại qua user group riêng biệt
+            var activeMemberIds = await _context.ConversationMembers
                 .Where(cm => cm.ConversationID == conversationId 
-                          && cm.MemberID != currentMember.WorkspaceMemberID
                           && cm.WorkspaceMember.Status == "Active")
                 .Select(cm => cm.MemberID)
                 .ToListAsync();
+
+            foreach (var memberId in activeMemberIds)
+            {
+                await _hubContext.Clients
+                    .Group(ConversationHub.BuildUserGroup(memberId))
+                    .SendAsync("MessageCreated", response);
+            }
+
+            // Gửi thông báo cho các thành viên khác trong nhóm chat
+            var otherMemberIds = activeMemberIds
+                .Where(memberId => memberId != currentMember.WorkspaceMemberID)
+                .ToList();
 
             var senderName = currentMember.Resource?.FullName ?? "Someone";
             var shortenedContent = content != null 

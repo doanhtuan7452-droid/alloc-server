@@ -37,7 +37,7 @@
     <value>Mã tiền tệ (OriginalCurrencyCode) không được vượt quá 5 ký tự.</value>
   </data>
   <data name="InvalidExchangeRate" xml:space="preserve">
-    <value>Tỷ giá (ExchangeRateToUSD) phải lớn hơn 0 và nhỏ hơn hoặc bằng 999999.9999.</value>
+    <value>Tỷ giá (ExchangeRateToUSD) phải lớn hơn 0 và nhỏ hơn hoặc bằng 999999.999999999999.</value>
   </data>
   <data name="ProjectNameExists" xml:space="preserve">
     <value>Tên dự án đã tồn tại trong Workspace.</value>
@@ -391,7 +391,7 @@
     <value>Phương pháp (Methodology) chỉ nhận Agile, Waterfall, Scrum, Kanban hoặc Hybrid.</value>
   </data>
   <data name="InvalidExchangeRate" xml:space="preserve">
-    <value>Tỷ giá quy đổi (ExchangeRate) phải lớn hơn 0 và nhỏ hơn hoặc bằng 999999.9999.</value>
+    <value>Tỷ giá quy đổi (ExchangeRate) phải lớn hơn 0 và nhỏ hơn hoặc bằng 999999.999999999999.</value>
   </data>
   <data name="ProjectNameExists" xml:space="preserve">
     <value>Tên dự án đã tồn tại trong Workspace.</value>

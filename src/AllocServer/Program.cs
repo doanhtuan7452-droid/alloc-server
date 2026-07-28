@@ -94,6 +94,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseWebSockets();
+
 // Chèn Routing tường minh trước khi chạy Authentication & CORS & RateLimiter
 app.UseRouting();
 
