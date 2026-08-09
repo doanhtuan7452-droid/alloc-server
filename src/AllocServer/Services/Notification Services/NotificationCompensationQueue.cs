@@ -18,6 +18,7 @@ namespace AllocServer.Services.Notification_Services
 
     public interface INotificationCompensationQueue
     {
+        int Count { get; }
         ValueTask QueueCompensationAsync(NotificationCompensationItem item, CancellationToken cancellationToken = default);
         ValueTask<NotificationCompensationItem> DequeueAsync(CancellationToken cancellationToken);
     }
@@ -25,6 +26,8 @@ namespace AllocServer.Services.Notification_Services
     public class NotificationCompensationQueue : INotificationCompensationQueue
     {
         private readonly Channel<NotificationCompensationItem> _queue;
+
+        public int Count => _queue.Reader.Count;
 
         public NotificationCompensationQueue()
         {

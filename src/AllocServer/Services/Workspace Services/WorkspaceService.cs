@@ -1130,5 +1130,233 @@ namespace AllocServer.Services.Workspace_Services
                 OTRatePerHour = targetMember.OTRatePerHour
             };
         }
+
+        public async Task<object> SearchWorkspaceAsync(int workspaceId, int currentAccountId, GetWorkspaceSearchQuery query)
+        {
+            var workspaceExists = await _context.Workspaces.AnyAsync(w => w.WorkspaceID == workspaceId && !w.IsDeleted);
+            if (!workspaceExists)
+            {
+                throw new KeyNotFoundException("WorkspaceNotFound");
+            }
+
+            var memberInfo = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .Include(wm => wm.WorkspaceRole)
+                .FirstOrDefaultAsync(wm => wm.WorkspaceID == workspaceId 
+                    && wm.Resource.AccountID == currentAccountId 
+                    && wm.Status == "Active");
+
+            if (memberInfo == null)
+            {
+                throw new UnauthorizedAccessException("User has no active membership in this workspace.");
+            }
+
+            var roleName = memberInfo.WorkspaceRole?.RoleName;
+            bool isAdminOrOwner = string.Equals(roleName, "Owner", StringComparison.OrdinalIgnoreCase) 
+                                  || string.Equals(roleName, "Admin", StringComparison.OrdinalIgnoreCase);
+
+            var q = query.Q?.Trim().ToLower() ?? string.Empty;
+            
+            // 1. Projects Query
+            var projectsQuery = _context.Projects
+                .AsNoTracking()
+                .Where(p => p.WorkspaceID == workspaceId && !p.IsDeleted);
+
+            if (!isAdminOrOwner)
+            {
+                projectsQuery = projectsQuery.Where(p => _context.TaskAssignees.Any(ta => 
+                    ta.WorkspaceMemberID == memberInfo.WorkspaceMemberID 
+                    && ta.Task.ProjectID == p.ProjectID 
+                    && !ta.Task.IsDeleted));
+            }
+
+            if (!string.IsNullOrEmpty(q))
+            {
+                projectsQuery = projectsQuery.Where(p => p.ProjectName.ToLower().Contains(q));
+            }
+
+            // 2. Tasks Query
+            var tasksQuery = _context.ProjectTasks
+                .AsNoTracking()
+                .Include(t => t.Project)
+                .Where(t => t.Project!.WorkspaceID == workspaceId && !t.IsDeleted && !t.Project.IsDeleted);
+
+            if (!isAdminOrOwner)
+            {
+                tasksQuery = tasksQuery.Where(t => _context.TaskAssignees.Any(ta => 
+                    ta.WorkspaceMemberID == memberInfo.WorkspaceMemberID 
+                    && ta.Task.ProjectID == t.ProjectID 
+                    && !ta.Task.IsDeleted));
+            }
+
+            if (!string.IsNullOrEmpty(q))
+            {
+                tasksQuery = tasksQuery.Where(t => t.TaskName.ToLower().Contains(q));
+            }
+
+            // 3. Employees Query
+            IQueryable<WorkspaceMember>? membersQuery = null;
+            if (isAdminOrOwner)
+            {
+                membersQuery = _context.WorkspaceMembers
+                    .AsNoTracking()
+                    .Include(m => m.Resource)
+                    .Where(m => m.WorkspaceID == workspaceId && !m.Resource.IsDeleted);
+
+                if (!string.IsNullOrEmpty(q))
+                {
+                    membersQuery = membersQuery.Where(m => m.EmployeeCode.ToLower().Contains(q) 
+                                                           || m.Resource.FullName.ToLower().Contains(q));
+                }
+            }
+
+            var type = query.Type?.ToLower() ?? "all";
+
+            if (type == "all")
+            {
+                var projectsListTask = projectsQuery.OrderByDescending(p => p.CreatedAt).Take(5).Select(p => new SearchProjectItemResponse
+                {
+                    ProjectID = p.ProjectID,
+                    ProjectName = p.ProjectName,
+                    Status = p.Status,
+                    StartDate = p.StartDate,
+                    EndDate = p.EndDate
+                }).ToListAsync();
+
+                var tasksListTask = tasksQuery.OrderByDescending(t => t.CreatedAt).Take(5).Select(t => new SearchTaskItemResponse
+                {
+                    TaskID = t.TaskID,
+                    TaskName = t.TaskName,
+                    ProjectID = t.ProjectID,
+                    ProjectName = t.Project!.ProjectName,
+                    Status = t.Status
+                }).ToListAsync();
+
+                Task<List<SearchEmployeeItemResponse>> employeesListTask;
+                if (isAdminOrOwner && membersQuery != null)
+                {
+                    employeesListTask = membersQuery.OrderBy(m => m.EmployeeCode).Take(5).Select(m => new SearchEmployeeItemResponse
+                    {
+                        WorkspaceMemberID = m.WorkspaceMemberID,
+                        EmployeeCode = m.EmployeeCode,
+                        FullName = m.Resource.FullName,
+                        AvatarURL = m.Resource.AvatarURL
+                    }).ToListAsync();
+                }
+                else
+                {
+                    employeesListTask = Task.FromResult(new List<SearchEmployeeItemResponse>());
+                }
+
+                await Task.WhenAll(projectsListTask, tasksListTask, employeesListTask);
+
+                return new WorkspaceSearchResponse
+                {
+                    Projects = projectsListTask.Result,
+                    Tasks = tasksListTask.Result,
+                    Employees = employeesListTask.Result
+                };
+            }
+            else if (type == "project")
+            {
+                var page = Math.Max(query.Page, 1);
+                var pageSize = Math.Clamp(query.PageSize, 1, 100);
+
+                var totalItems = await projectsQuery.CountAsync();
+                var items = await projectsQuery
+                    .OrderByDescending(p => p.CreatedAt)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(p => new SearchProjectItemResponse
+                    {
+                        ProjectID = p.ProjectID,
+                        ProjectName = p.ProjectName,
+                        Status = p.Status,
+                        StartDate = p.StartDate,
+                        EndDate = p.EndDate
+                    })
+                    .ToListAsync();
+
+                return new 
+                {
+                    page,
+                    pageSize,
+                    totalItems,
+                    totalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
+                    items
+                };
+            }
+            else if (type == "task")
+            {
+                var page = Math.Max(query.Page, 1);
+                var pageSize = Math.Clamp(query.PageSize, 1, 100);
+
+                var totalItems = await tasksQuery.CountAsync();
+                var items = await tasksQuery
+                    .OrderByDescending(t => t.CreatedAt)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(t => new SearchTaskItemResponse
+                    {
+                        TaskID = t.TaskID,
+                        TaskName = t.TaskName,
+                        ProjectID = t.ProjectID,
+                        ProjectName = t.Project!.ProjectName,
+                        Status = t.Status
+                    })
+                    .ToListAsync();
+
+                return new 
+                {
+                    page,
+                    pageSize,
+                    totalItems,
+                    totalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
+                    items
+                };
+            }
+            else if (type == "employee")
+            {
+                var page = Math.Max(query.Page, 1);
+                var pageSize = Math.Clamp(query.PageSize, 1, 100);
+
+                if (!isAdminOrOwner || membersQuery == null)
+                {
+                    return new 
+                    {
+                        page,
+                        pageSize,
+                        totalItems = 0,
+                        totalPages = 0,
+                        items = new List<SearchEmployeeItemResponse>()
+                    };
+                }
+
+                var totalItems = await membersQuery.CountAsync();
+                var items = await membersQuery
+                    .OrderBy(m => m.EmployeeCode)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(m => new SearchEmployeeItemResponse
+                    {
+                        WorkspaceMemberID = m.WorkspaceMemberID,
+                        EmployeeCode = m.EmployeeCode,
+                        FullName = m.Resource.FullName,
+                        AvatarURL = m.Resource.AvatarURL
+                    })
+                    .ToListAsync();
+
+                return new 
+                {
+                    page,
+                    pageSize,
+                    totalItems,
+                    totalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
+                    items
+                };
+            }
+
+            throw new ArgumentException("InvalidSearchType");
+        }
     }
 }

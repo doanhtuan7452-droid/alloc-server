@@ -10,6 +10,8 @@ namespace AllocServer.Services.WorkspaceMemberProfile_Services
     {
         private readonly Channel<int> _queue;
 
+        public int Count => _queue.Reader.Count;
+
         public ProfileCalculationQueue()
         {
             var options = new BoundedChannelOptions(5000)

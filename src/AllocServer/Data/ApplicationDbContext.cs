@@ -21,12 +21,15 @@ namespace AllocServer.Data
         public DbSet<WorkspaceMember> WorkspaceMembers { get; set; }
         public DbSet<WorkspaceCurrentLimit> WorkspaceCurrentLimits { get; set; }
         public DbSet<WorkspaceMonthlyUsage> WorkspaceMonthlyUsages { get; set; }
+        public DbSet<SubscriptionPlan> SubscriptionPlans { get; set; }
+        public DbSet<WorkspaceSubscription> WorkspaceSubscriptions { get; set; }
         public DbSet<Project> Projects { get; set; }
         public DbSet<ProjectTask> ProjectTasks { get; set; }
         public DbSet<Expense> Expenses { get; set; }
         public DbSet<Revenue> Revenues { get; set; }
         public DbSet<ProjectAsset> ProjectAssets { get; set; }
         public DbSet<AILog> AILogs { get; set; }
+        public DbSet<AllocServer.Models.AI.AIToolExecutionLog> AIToolExecutionLogs { get; set; }
         public DbSet<Risk> Risks { get; set; }
         public DbSet<RiskMitigation> RiskMitigations { get; set; }
         public DbSet<RiskLifecycle> RiskLifecycles { get; set; }
@@ -280,6 +283,26 @@ namespace AllocServer.Data
                 .WithMany()
                 .HasForeignKey(usage => usage.WorkspaceID)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<SubscriptionPlan>(entity =>
+            {
+                entity.HasQueryFilter(p => !p.IsDeleted);
+            });
+
+            modelBuilder.Entity<WorkspaceSubscription>(entity =>
+            {
+                entity.HasQueryFilter(s => !s.IsDeleted);
+
+                entity.HasOne(s => s.Workspace)
+                    .WithMany()
+                    .HasForeignKey(s => s.WorkspaceID)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(s => s.Plan)
+                    .WithMany()
+                    .HasForeignKey(s => s.PlanID)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
 
             modelBuilder.Entity<WorkspaceMonthlyUsage>()
                 .HasIndex(usage => new
@@ -845,6 +868,21 @@ namespace AllocServer.Data
                     t.HasCheckConstraint("CHK_MemberEvaluations_LeadershipScore", "LeadershipScore BETWEEN 0 AND 100");
                     t.HasCheckConstraint("CHK_MemberEvaluations_ProblemSolvingScore", "ProblemSolvingScore BETWEEN 0 AND 100");
                 });
+
+            modelBuilder.Entity<AllocServer.Models.AI.AIToolExecutionLog>(entity =>
+            {
+                entity.HasQueryFilter(l => !l.IsDeleted);
+
+                entity.HasOne(l => l.Workspace)
+                    .WithMany()
+                    .HasForeignKey(l => l.WorkspaceID)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(l => l.Account)
+                    .WithMany()
+                    .HasForeignKey(l => l.AccountID)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
         }
     }
 }

@@ -9,7 +9,8 @@ namespace AllocServer.Interfaces.Storage
 
         Task<string> GetPresignedUrlAsync(
             string blobPath,
-            TimeSpan expiration);
+            TimeSpan expiration,
+            string? downloadFileName = null);
 
         Task DeleteFileAsync(string blobPath);
     }

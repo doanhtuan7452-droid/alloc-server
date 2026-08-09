@@ -8,6 +8,8 @@ namespace AllocServer.Services.Notification_Services
     {
         private readonly Channel<NotificationDispatchMessage> _queue;
 
+        public int Count => _queue.Reader.Count;
+
         public NotificationQueue()
         {
             var options = new BoundedChannelOptions(10000)

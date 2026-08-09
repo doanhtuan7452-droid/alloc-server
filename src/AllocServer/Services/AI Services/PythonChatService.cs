@@ -14,6 +14,8 @@ using AllocServer.Interfaces;
 using AllocServer.Interfaces.AI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using AllocServer.Services.Storage;
+using AllocServer.Interfaces.Storage;
 
 namespace AllocServer.Services.AI_Services
 {
@@ -27,13 +29,15 @@ namespace AllocServer.Services.AI_Services
         private readonly IFeatureQuotaService _featureQuotaService;
         private readonly IConfiguration _configuration;
         private readonly IAIQuotaCompensationQueue _quotaCompensationQueue;
+        private readonly StorageFactory _storageFactory;
 
         public PythonChatService(
             IHttpClientFactory httpClientFactory,
             ApplicationDbContext context,
             IFeatureQuotaService featureQuotaService,
             IConfiguration configuration,
-            IAIQuotaCompensationQueue quotaCompensationQueue)
+            IAIQuotaCompensationQueue quotaCompensationQueue,
+            StorageFactory storageFactory)
         {
             _httpClient = httpClientFactory.CreateClient("PythonAIClient");
             _llmClient = httpClientFactory.CreateClient("PythonLLMClient");
@@ -41,6 +45,7 @@ namespace AllocServer.Services.AI_Services
             _featureQuotaService = featureQuotaService;
             _configuration = configuration;
             _quotaCompensationQueue = quotaCompensationQueue;
+            _storageFactory = storageFactory;
         }
 
         public async Task<PythonConversationsResponse> GetConversationsAsync(string userId, int limit, int skip)
@@ -119,13 +124,45 @@ namespace AllocServer.Services.AI_Services
                     dynamicToolsMetadata["contextSignature"] = GenerateContextSignature(accountIdInt, request.WorkspaceId, secretKey);
                 }
 
+                // Duyệt qua danh sách tài liệu đính kèm và sinh Presigned URL từ Storage Strategy hiện tại
+                var processedAttachments = new List<PythonAttachmentDto>();
+                if (request.Attachments != null)
+                {
+                    var storageStrategy = _storageFactory.Create();
+                    foreach (var attachment in request.Attachments)
+                    {
+                        var processed = new PythonAttachmentDto
+                        {
+                            FileId = attachment.FileId,
+                            FileName = attachment.FileName,
+                            FileType = attachment.FileType,
+                            FileSize = attachment.FileSize,
+                            ExtractedText = attachment.ExtractedText,
+                            StorageUrl = attachment.StorageUrl
+                        };
+
+                        if (int.TryParse(attachment.FileId, out var assetId))
+                        {
+                            var asset = await _context.ProjectAssets
+                                .AsNoTracking()
+                                .FirstOrDefaultAsync(a => a.AssetID == assetId, cancellationToken);
+                            if (asset != null && !string.IsNullOrWhiteSpace(asset.AssetURL))
+                            {
+                                processed.StorageUrl = await storageStrategy.GetPresignedUrlAsync(asset.AssetURL, TimeSpan.FromHours(1));
+                            }
+                        }
+
+                        processedAttachments.Add(processed);
+                    }
+                }
+
                 // Chuẩn bị payload gửi cho Python Server (ép kiểu UserId sang string cẩn thận)
                 var payload = new PythonChatQueryPayload
                 {
                     ConversationId = request.ConversationId,
                     UserId = userId,
                     Message = request.Message,
-                    Attachments = request.Attachments,
+                    Attachments = processedAttachments,
                     Provider = request.Provider,
                     Model = request.Model,
                     Temperature = request.Temperature,

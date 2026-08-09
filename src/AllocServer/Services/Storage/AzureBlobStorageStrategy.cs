@@ -43,7 +43,8 @@ namespace AllocServer.Services.Storage
 
         public Task<string> GetPresignedUrlAsync(
             string blobPath,
-            TimeSpan expiration)
+            TimeSpan expiration,
+            string? downloadFileName = null)
         {
             var blobClient = GetContainerClient().GetBlobClient(blobPath);
             if (!blobClient.CanGenerateSasUri)
@@ -60,6 +61,13 @@ namespace AllocServer.Services.Storage
                 ExpiresOn = DateTimeOffset.UtcNow.Add(expiration)
             };
             sasBuilder.SetPermissions(BlobSasPermissions.Read);
+
+            if (!string.IsNullOrEmpty(downloadFileName))
+            {
+                var sanitized = System.Text.RegularExpressions.Regex.Replace(downloadFileName, @"[^a-zA-Z0-9\.\-_]", "_");
+                var encoded = Uri.EscapeDataString(downloadFileName);
+                sasBuilder.ContentDisposition = $"attachment; filename=\"{sanitized}\"; filename*=UTF-8''{encoded}";
+            }
 
             return Task.FromResult(blobClient.GenerateSasUri(sasBuilder).ToString());
         }

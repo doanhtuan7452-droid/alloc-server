@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Amazon.S3;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Configuration;
 using AllocServer.Interfaces;
@@ -93,6 +94,7 @@ namespace AllocServer.Extensions
             services.AddScoped<RequireActiveAccountFilter>();
             services.AddScoped<RequireSystemAccountFilter>();
             services.AddScoped<RequireInternalTokenFilter>();
+            services.AddScoped<AllocServer.Interfaces.SystemAdmin.ISystemAdminService, AllocServer.Services.SystemAdmin_Services.SystemAdminService>();
 
             // AI Dynamic Webhook Tool Execution & Guards
             services.AddScoped<IAIToolSafetyGuard, AIToolSafetyGuard>();
@@ -106,9 +108,25 @@ namespace AllocServer.Extensions
             services.AddHostedService<AIBackchannelToolSyncService>();
 
             // Storage Strategy + Factory
+            services.AddSingleton<IAmazonS3>(sp =>
+            {
+                var config = sp.GetRequiredService<IConfiguration>();
+                var s3Config = new AmazonS3Config
+                {
+                    ServiceURL = config["Storage:S3:ServiceURL"],
+                    AuthenticationRegion = config["Storage:S3:Region"] ?? "us-east-1",
+                    ForcePathStyle = true
+                };
+                return new AmazonS3Client(
+                    config["Storage:S3:AccessKeyId"],
+                    config["Storage:S3:SecretAccessKey"],
+                    s3Config
+                );
+            });
             services.AddScoped<AzureBlobStorageStrategy>();
-            services.AddScoped<IStorageStrategy, AzureBlobStorageStrategy>();
+            services.AddScoped<S3StorageStrategy>();
             services.AddScoped<StorageFactory>();
+            services.AddScoped<IStorageStrategy>(sp => sp.GetRequiredService<StorageFactory>().Create());
 
             // Simple Factory + Strategy Pattern (Auth)
             services.AddScoped<LocalLoginStrategy>();

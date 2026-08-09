@@ -10,6 +10,8 @@ namespace AllocServer.Services.AI_Services
     {
         private readonly Channel<(int WorkspaceId, DateOnly BillingMonth)> _channel;
 
+        public int Count => _channel.Reader.Count;
+
         public AIQuotaCompensationQueue()
         {
             var options = new UnboundedChannelOptions

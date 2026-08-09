@@ -66,15 +66,25 @@ namespace AllocServer.Services.ProjectAsset_Services
             UploadAssetRequestDto request)
         {
             var file = ValidateUploadFile(request.File);
-            var fileName = SanitizeFileName(file.FileName);
-            var extension = Path.GetExtension(fileName);
+            var originalFileName = Path.GetFileName(file.FileName).Trim();
+            if (string.IsNullOrWhiteSpace(originalFileName))
+            {
+                throw new ArgumentException("InvalidFileName");
+            }
+            if (originalFileName.Length > 255)
+            {
+                throw new ArgumentException("FileNameTooLong");
+            }
+
+            var extension = Path.GetExtension(originalFileName);
             var assetType = ResolveAssetType(extension);
             var contentType = string.IsNullOrWhiteSpace(file.ContentType)
                 ? "application/octet-stream"
                 : file.ContentType;
 
             var uploaderMembership = await ResolveActiveMembershipAsync(accountId, project.WorkspaceID);
-            var blobPath = BuildBlobPath(project.WorkspaceID, project.ProjectID, fileName);
+            var sanitizedFileName = SanitizeFileName(originalFileName);
+            var blobPath = BuildBlobPath(project.WorkspaceID, project.ProjectID, sanitizedFileName);
             var storageStrategy = _storageFactory.Create();
 
             await using (var fileStream = file.OpenReadStream())
@@ -93,7 +103,7 @@ namespace AllocServer.Services.ProjectAsset_Services
                     ProjectID = project.ProjectID,
                     UploadedBy = uploaderMembership.WorkspaceMemberID,
                     AssetType = assetType,
-                    AssetName = fileName,
+                    AssetName = originalFileName,
                     AssetURL = blobPath,
                     FileSizeKB = CalculateFileSizeKB(file.Length),
                     CreatedAt = now
@@ -134,18 +144,26 @@ namespace AllocServer.Services.ProjectAsset_Services
             int workspaceId,
             UploadAssetRequestDto request)
         {
-            await EnsurePermissionAsync(accountId, workspaceId, AssetPermissionIds.Create);
-
             var file = ValidateUploadFile(request.File);
-            var fileName = SanitizeFileName(file.FileName);
-            var extension = Path.GetExtension(fileName);
+            var originalFileName = Path.GetFileName(file.FileName).Trim();
+            if (string.IsNullOrWhiteSpace(originalFileName))
+            {
+                throw new ArgumentException("InvalidFileName");
+            }
+            if (originalFileName.Length > 255)
+            {
+                throw new ArgumentException("FileNameTooLong");
+            }
+
+            var extension = Path.GetExtension(originalFileName);
             var assetType = ResolveAssetType(extension);
             var contentType = string.IsNullOrWhiteSpace(file.ContentType)
                 ? "application/octet-stream"
                 : file.ContentType;
 
             var uploaderMembership = await ResolveActiveMembershipAsync(accountId, workspaceId);
-            var blobPath = BuildWorkspaceBlobPath(workspaceId, fileName);
+            var sanitizedFileName = SanitizeFileName(originalFileName);
+            var blobPath = BuildWorkspaceBlobPath(workspaceId, sanitizedFileName);
             var storageStrategy = _storageFactory.Create();
 
             await using (var fileStream = file.OpenReadStream())
@@ -164,7 +182,7 @@ namespace AllocServer.Services.ProjectAsset_Services
                     ProjectID = null,
                     UploadedBy = uploaderMembership.WorkspaceMemberID,
                     AssetType = assetType,
-                    AssetName = fileName,
+                    AssetName = originalFileName,
                     AssetURL = blobPath,
                     FileSizeKB = CalculateFileSizeKB(file.Length),
                     CreatedAt = now
@@ -273,7 +291,7 @@ namespace AllocServer.Services.ProjectAsset_Services
             var expiresAt = DateTime.UtcNow.Add(DownloadUrlExpiration);
             var downloadUrl = await _storageFactory
                 .Create()
-                .GetPresignedUrlAsync(asset.AssetURL, DownloadUrlExpiration);
+                .GetPresignedUrlAsync(asset.AssetURL, DownloadUrlExpiration, asset.AssetName);
 
             return new ProjectAssetDownloadResponseDto
             {
@@ -434,6 +452,20 @@ WHERE WorkspaceID = {workspaceId}
                 throw new ArgumentException("InvalidFileName");
             }
 
+            // 1. Thay thế khoảng trắng bằng dấu gạch dưới
+            sanitizedFileName = sanitizedFileName.Replace(" ", "_");
+
+            // 2. Chuyển tiếng Việt có dấu thành không dấu
+            sanitizedFileName = RemoveVietnameseDiacritics(sanitizedFileName);
+
+            // 3. Chỉ cho phép chữ, số, dấu chấm, dấu gạch ngang, gạch dưới. Thay thế các ký tự khác thành '_'
+            sanitizedFileName = System.Text.RegularExpressions.Regex.Replace(
+                sanitizedFileName, 
+                @"[^a-zA-Z0-9\.\-_]", 
+                "_"
+            );
+
+            // 4. Giới hạn độ dài và loại bỏ ký tự không hợp lệ của OS
             foreach (var invalidChar in Path.GetInvalidFileNameChars())
             {
                 sanitizedFileName = sanitizedFileName.Replace(invalidChar, '_');
@@ -446,6 +478,28 @@ WHERE WorkspaceID = {workspaceId}
             }
 
             return sanitizedFileName;
+        }
+
+        private static string RemoveVietnameseDiacritics(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+
+            // Xử lý thủ công chữ đ và Đ do không tự tách tổ hợp FormD được
+            text = text.Replace('đ', 'd').Replace('Đ', 'D');
+
+            var normalizedString = text.Normalize(System.Text.NormalizationForm.FormD);
+            var stringBuilder = new System.Text.StringBuilder();
+
+            foreach (var c in normalizedString)
+            {
+                var unicodeCategory = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
+                if (unicodeCategory != System.Globalization.UnicodeCategory.NonSpacingMark)
+                {
+                    stringBuilder.Append(c);
+                }
+            }
+
+            return stringBuilder.ToString().Normalize(System.Text.NormalizationForm.FormC);
         }
 
         private static string ResolveAssetType(string extension)

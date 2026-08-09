@@ -48,5 +48,6 @@ namespace AllocServer.Interfaces.Workspaces
         Task<bool> UpdateMemberRoleAsync(int accountId, int workspaceId, int targetMemberId, UpdateMemberRoleRequest request);
         Task<bool> UpdateMemberSalaryOTAsync(int accountId, int workspaceId, int targetMemberId, UpdateMemberSalaryOTRequest request);
         Task<MemberSalaryOTResponse?> GetMemberSalaryOTAsync(int accountId, int workspaceId, int targetMemberId);
+        Task<object> SearchWorkspaceAsync(int workspaceId, int currentAccountId, GetWorkspaceSearchQuery query);
     }
 }
