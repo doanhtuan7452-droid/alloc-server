@@ -1,0 +1,10 @@
+Tạo một nhiệm vụ (task) mới trong dự án được chỉ định. LLM bắt buộc điền các tham số được yêu cầu. Hợp đồng quy chuẩn bắt buộc:
+- projectId & taskName: ID dự án và tên nhiệm vụ không được để trống, tên nhiệm vụ tối đa 255 ký tự.
+- estimatedValue: Giá trị ước tính phải từ 0.01 trở lên (>= 0.01).
+- durationType: Loại thời lượng, chỉ chấp nhận một trong: 'Hour', 'Day', 'StoryPoint'. Bắt buộc điền.
+- startDate & endDate: Định dạng 'yyyy-MM-dd'. Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu nếu điền cả hai.
+- status: Chỉ nhận: 'To-do', 'In Progress', 'Review', 'Done'. Mặc định: 'To-do'.
+- complexity: Chỉ nhận: 'Low', 'Medium', 'High', 'Critical'. Mặc định: 'Medium'.
+- requiredSkillLevel: Chỉ nhận: 'Low', 'Medium', 'High', 'Expert'. Mặc định: 'Medium'.
+- priority: Chỉ nhận: 'Low', 'Medium', 'High', 'Critical'. Mặc định: 'Medium'.
+- expectedTeamSize: Số nhân sự dự kiến tối thiểu là 1. Mặc định: 1.

@@ -86,6 +86,7 @@ namespace AllocServer.Extensions
             services.AddScoped<IAIAnalysisService, AIAnalysisService>();
             services.AddScoped<IAIProvider, MockAIProvider>();
             services.AddScoped<IPythonChatService, PythonChatService>();
+            services.AddSingleton<IPromptLoader, FilePromptLoader>();
             services.AddSingleton<IAIQuotaCompensationQueue, AIQuotaCompensationQueue>();
             services.AddHostedService<AIQuotaCompensationBackgroundService>();
             services.AddScoped<IRequestService, RequestService>();
@@ -95,6 +96,7 @@ namespace AllocServer.Extensions
             services.AddScoped<RequireSystemAccountFilter>();
             services.AddScoped<RequireInternalTokenFilter>();
             services.AddScoped<AllocServer.Interfaces.SystemAdmin.ISystemAdminService, AllocServer.Services.SystemAdmin_Services.SystemAdminService>();
+            services.AddScoped<MLExportService>();
 
             // AI Dynamic Webhook Tool Execution & Guards
             services.AddScoped<IAIToolSafetyGuard, AIToolSafetyGuard>();

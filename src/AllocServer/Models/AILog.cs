@@ -24,6 +24,10 @@ namespace AllocServer.Models
         [StringLength(50)]
         public string? UserFeedback { get; set; }
 
+        public string? ModelInputJson { get; set; }
+
+        public string? ModelOutputJson { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

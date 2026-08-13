@@ -124,6 +124,22 @@ namespace AllocServer.Services.AI_Services
                     dynamicToolsMetadata["contextSignature"] = GenerateContextSignature(accountIdInt, request.WorkspaceId, secretKey);
                 }
 
+                // Kiểm tra quyền đọc tài liệu (asset:view) nếu có tệp đính kèm gửi lên
+                if (request.Attachments != null && request.Attachments.Any())
+                {
+                    var hasAssetViewPermission = string.Equals(membership.RoleName, "Owner", StringComparison.OrdinalIgnoreCase)
+                        || await _context.RolePermissions
+                            .AsNoTracking()
+                            .AnyAsync(rolePermission =>
+                                rolePermission.WorkspaceRoleID == membership.WorkspaceRoleID
+                                && rolePermission.PermissionID == AssetPermissionIds.View, cancellationToken);
+
+                    if (!hasAssetViewPermission)
+                    {
+                        throw new UnauthorizedAccessException("Ban khong co quyen xem tai lieu trong workspace nay.");
+                    }
+                }
+
                 // Duyệt qua danh sách tài liệu đính kèm và sinh Presigned URL từ Storage Strategy hiện tại
                 var processedAttachments = new List<PythonAttachmentDto>();
                 if (request.Attachments != null)
@@ -145,10 +161,17 @@ namespace AllocServer.Services.AI_Services
                         {
                             var asset = await _context.ProjectAssets
                                 .AsNoTracking()
-                                .FirstOrDefaultAsync(a => a.AssetID == assetId, cancellationToken);
+                                .FirstOrDefaultAsync(a => 
+                                    a.AssetID == assetId 
+                                    && a.WorkspaceID == request.WorkspaceId, cancellationToken);
+                            
                             if (asset != null && !string.IsNullOrWhiteSpace(asset.AssetURL))
                             {
                                 processed.StorageUrl = await storageStrategy.GetPresignedUrlAsync(asset.AssetURL, TimeSpan.FromHours(1));
+                            }
+                            else if (asset == null)
+                            {
+                                throw new UnauthorizedAccessException($"Khong tim thay hoac khong co quyen truy cap tai lieu #{assetId} trong workspace nay.");
                             }
                         }
 

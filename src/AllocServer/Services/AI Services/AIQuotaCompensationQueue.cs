@@ -16,7 +16,7 @@ namespace AllocServer.Services.AI_Services
         {
             var options = new UnboundedChannelOptions
             {
-                SingleReader = true,
+                SingleReader = false,
                 SingleWriter = false
             };
             _channel = Channel.CreateUnbounded<(int WorkspaceId, DateOnly BillingMonth)>(options);

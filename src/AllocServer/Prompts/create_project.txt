@@ -1,0 +1,7 @@
+Tạo một dự án mới trong Workspace được chỉ định. LLM bắt buộc phải điền đầy đủ các tham số được yêu cầu. Hợp đồng quy chuẩn bắt buộc:
+- projectName: Tên dự án, không được để trống, tối đa 255 ký tự.
+- startDate & endDate: Định dạng 'yyyy-MM-dd', bắt buộc truyền cả hai và ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu (endDate >= startDate).
+- expectedBudget: Ngân sách dự kiến không được âm (>= 0).
+- methodology: Phương pháp luận chỉ được phép nhận một trong các giá trị: 'Agile', 'Waterfall', 'Scrum', 'Kanban', 'Hybrid'. Mặc định: 'Agile'.
+- originalCurrencyCode: Mã tiền tệ gốc, tối đa 5 ký tự. Mặc định: 'USD'.
+- exchangeRateToUSD: Tỷ giá quy đổi sang USD, số dương (> 0). Mặc định: 1.0.

@@ -1,0 +1,1 @@
+Lấy chi tiết hồ sơ nhân sự bao gồm trình độ chuyên môn, điểm kỹ năng, điểm đánh giá hiệu năng, danh sách kỹ năng thực tế, hiệu năng làm việc lịch sử và tải trọng công việc hiện tại. Yêu cầu bảo mật cao, chỉ tài khoản có quyền xem hồ sơ mới gọi được. Yêu cầu truyền workspaceId, userId và một trong hai: workspaceMemberId hoặc employeeCode.

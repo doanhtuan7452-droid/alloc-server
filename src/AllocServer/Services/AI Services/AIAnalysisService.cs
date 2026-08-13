@@ -92,16 +92,23 @@ namespace AllocServer.Services.AI_Services
 
                 string content = string.Empty;
                 List<AIAllocationAssessmentResultDto>? results = null;
+                string? rawInputJson = null;
+                string? rawOutputJson = null;
 
                 if (analysisType == "Risk Warning")
                 {
-                    content = await GetProjectRiskAnalysisAsync(project);
+                    var riskResult = await GetProjectRiskAnalysisAsync(project);
+                    content = riskResult.Content;
+                    rawInputJson = riskResult.RawInputJson;
+                    rawOutputJson = riskResult.RawOutputJson;
                 }
                 else if (analysisType == "Resource Suggestion")
                 {
                     var allocationResult = await GetResourceAllocationAnalysisAsync(project, request.TargetEntityId, request.WorkspaceMemberIds);
                     content = allocationResult.Content;
                     results = allocationResult.Results;
+                    rawInputJson = allocationResult.RawInputJson;
+                    rawOutputJson = allocationResult.RawOutputJson;
                 }
                 else
                 {
@@ -114,6 +121,8 @@ namespace AllocServer.Services.AI_Services
                     ProjectID = project.ProjectID,
                     SuggestionType = analysisType,
                     SuggestionContent = content,
+                    ModelInputJson = rawInputJson,
+                    ModelOutputJson = rawOutputJson,
                     CreatedAt = now
                 };
 
@@ -139,7 +148,7 @@ namespace AllocServer.Services.AI_Services
             }
         }
 
-        private async Task<string> GetProjectRiskAnalysisAsync(Project project)
+        private async Task<(string Content, string RawInputJson, string RawOutputJson)> GetProjectRiskAnalysisAsync(Project project)
         {
             // 1. Duration (anchor at project end and start dates)
             int projectDurationDays = Math.Max(project.EndDate.DayNumber - project.StartDate.DayNumber, 0);
@@ -288,7 +297,7 @@ namespace AllocServer.Services.AI_Services
             }
 
             // Format SuggestionContent
-            return string.Join(
+            var content = string.Join(
                 Environment.NewLine,
                 $"**Kết quả phân tích rủi ro (Model: {model}):** {result.PredictionLabel} (Độ tin cậy: {result.ConfidenceScore * 100:F1}%)",
                 $"**Trạng thái:** {result.BusinessStatusText}",
@@ -302,9 +311,14 @@ namespace AllocServer.Services.AI_Services
                 "**Thử thách/Nguy cơ tiềm ẩn:**",
                 result.PotentialChallenges != null && result.PotentialChallenges.Any() ? string.Join(Environment.NewLine, result.PotentialChallenges.Select(c => $"- {c}")) : "- Không ghi nhận"
             );
+
+            var rawInputJson = System.Text.Json.JsonSerializer.Serialize(payload);
+            var rawOutputJson = System.Text.Json.JsonSerializer.Serialize(result);
+
+            return (content, rawInputJson, rawOutputJson);
         }
 
-        private async Task<(string Content, List<AIAllocationAssessmentResultDto> Results)> GetResourceAllocationAnalysisAsync(
+        private async Task<(string Content, List<AIAllocationAssessmentResultDto> Results, string RawInputJson, string RawOutputJson)> GetResourceAllocationAnalysisAsync(
             Project project,
             int? taskId,
             List<int>? workspaceMemberIds)
@@ -548,7 +562,7 @@ namespace AllocServer.Services.AI_Services
             }
 
             string content = $"""
-                ### 📊 Bảng Xếp Hạng Mức Độ Phù Hợp Nhân Sự (Model: {model})
+                ### 📊 Bảng Xếp Hạng Mức Độ Phù Hạng Nhân Sự (Model: {model})
                 
                 {tableBuilder}
                 
@@ -557,7 +571,10 @@ namespace AllocServer.Services.AI_Services
                 {detailsBuilder}
                 """;
 
-            return (content, resultsDtoList);
+            var rawInputJson = System.Text.Json.JsonSerializer.Serialize(payload);
+            var rawOutputJson = System.Text.Json.JsonSerializer.Serialize(result);
+
+            return (content, resultsDtoList, rawInputJson, rawOutputJson);
         }
 
         private async Task<Project> LoadProjectAsync(int projectId)
