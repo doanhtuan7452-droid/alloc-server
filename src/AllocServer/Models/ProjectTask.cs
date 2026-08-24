@@ -53,5 +53,7 @@ namespace AllocServer.Models
         public DateTime? DeletedAt { get; set; }
 
         public int? DeletedBy { get; set; }
+
+        public ICollection<SubTask> SubTasks { get; set; } = new List<SubTask>();
     }
 }

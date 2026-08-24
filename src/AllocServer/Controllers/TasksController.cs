@@ -445,6 +445,145 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Tao moi sub-task cho task.</summary>
+        [HttpPost("{taskId}/sub-tasks")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.Update)]
+        [ProducesResponseType(typeof(SubTaskResponse), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> CreateSubTask(
+            int taskId,
+            [FromBody] CreateSubTaskRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var response = await _taskService.CreateSubTaskAsync(accountId, taskId, request);
+                return StatusCode(201, response);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Cap nhat sub-task cua task.</summary>
+        [HttpPut("{taskId}/sub-tasks/{subTaskId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.Update)]
+        [ProducesResponseType(typeof(SubTaskResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateSubTask(
+            int taskId,
+            int subTaskId,
+            [FromBody] UpdateSubTaskRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var response = await _taskService.UpdateSubTaskAsync(accountId, taskId, subTaskId, request);
+                return Ok(response);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Xoa mem sub-task cua task.</summary>
+        [HttpDelete("{taskId}/sub-tasks/{subTaskId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.Update)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> DeleteSubTask(
+            int taskId,
+            int subTaskId)
+        {
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token khong hop le." });
+            }
+
+            try
+            {
+                var deleted = await _taskService.DeleteSubTaskAsync(accountId, taskId, subTaskId);
+                if (!deleted)
+                {
+                    return NotFound(new ApiResponse { Message = "Khong tim thay sub-task." });
+                }
+
+                return NoContent();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lay danh sach sub-task cua task.</summary>
+        [HttpGet("{taskId}/sub-tasks")]
+        [Authorize]
+        [RequireActiveAccount]
+        [TaskAuthorize(TaskPermissionIds.View)]
+        [ProducesResponseType(typeof(List<SubTaskResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetTaskSubTasks(int taskId)
+        {
+            try
+            {
+                var response = await _taskService.GetTaskSubTasksAsync(taskId);
+                return Ok(response);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
+
         private bool TryGetCurrentTask(out ProjectTask task)
         {
             if (HttpContext.Items.TryGetValue(TaskAuthorizeAttribute.CurrentTaskItemKey, out var item)

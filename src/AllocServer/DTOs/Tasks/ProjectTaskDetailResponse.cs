@@ -50,5 +50,11 @@ namespace AllocServer.DTOs.Tasks
         /// <summary>Danh sách thành viên được gán/tham gia task.</summary>
         [JsonPropertyName("assignees")]
         public List<TaskAssigneeDetailResponse> Assignees { get; set; } = new();
+
+        [JsonPropertyName("progressPercentage")]
+        public decimal ProgressPercentage { get; set; }
+
+        [JsonPropertyName("subTasks")]
+        public List<SubTaskResponse> SubTasks { get; set; } = new();
     }
 }

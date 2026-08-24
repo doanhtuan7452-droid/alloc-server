@@ -76,6 +76,10 @@ namespace AllocServer.Services.AIInsight_Services
                     SuggestionType = log.SuggestionType,
                     SuggestionContent = log.SuggestionContent,
                     UserFeedback = log.UserFeedback,
+                    CorrectedRiskLevel = log.CorrectedRiskLevel,
+                    IsVerified = log.IsVerified,
+                    VerifiedBy = log.VerifiedBy,
+                    VerifiedAt = log.VerifiedAt,
                     CreatedAt = log.CreatedAt
                 })
                 .ToListAsync();
@@ -87,6 +91,77 @@ namespace AllocServer.Services.AIInsight_Services
                 TotalItems = totalItems,
                 TotalPages = (int)Math.Ceiling(totalItems / (double)pageSize),
                 Items = items
+            };
+        }
+
+        public async Task<AIInsightResponse> UpdateLogFeedbackAsync(
+            int projectId,
+            int logId,
+            int accountId,
+            UpdateAILogFeedbackRequest request)
+        {
+            var log = await _context.AILogs
+                .FirstOrDefaultAsync(l => l.LogID == logId && l.ProjectID == projectId);
+
+            if (log == null)
+            {
+                throw new KeyNotFoundException($"Không tìm thấy AI Log với ID {logId} thuộc dự án {projectId}.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.UserFeedback))
+            {
+                var normalizedFeedback = NormalizeFeedback(request.UserFeedback);
+                if (normalizedFeedback == null)
+                {
+                    throw new ArgumentException("UserFeedback chỉ nhận các giá trị 'Accepted', 'Rejected' hoặc 'Ignored'.");
+                }
+                log.UserFeedback = normalizedFeedback;
+            }
+
+            if (request.CorrectedRiskLevel.HasValue)
+            {
+                if (request.CorrectedRiskLevel.Value < 0 || request.CorrectedRiskLevel.Value > 3)
+                {
+                    throw new ArgumentException("CorrectedRiskLevel phải nằm trong khoảng từ 0 (Low) đến 3 (Critical).");
+                }
+                log.CorrectedRiskLevel = request.CorrectedRiskLevel.Value;
+            }
+
+            if (request.IsVerified.HasValue)
+            {
+                log.IsVerified = request.IsVerified.Value;
+                if (log.IsVerified)
+                {
+                    log.VerifiedBy = accountId;
+                    log.VerifiedAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    log.VerifiedBy = null;
+                    log.VerifiedAt = null;
+                }
+            }
+            else if (request.CorrectedRiskLevel.HasValue)
+            {
+                log.IsVerified = true;
+                log.VerifiedBy = accountId;
+                log.VerifiedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return new AIInsightResponse
+            {
+                LogId = log.LogID,
+                ProjectId = log.ProjectID,
+                SuggestionType = log.SuggestionType,
+                SuggestionContent = log.SuggestionContent,
+                UserFeedback = log.UserFeedback,
+                CorrectedRiskLevel = log.CorrectedRiskLevel,
+                IsVerified = log.IsVerified,
+                VerifiedBy = log.VerifiedBy,
+                VerifiedAt = log.VerifiedAt,
+                CreatedAt = log.CreatedAt
             };
         }
 

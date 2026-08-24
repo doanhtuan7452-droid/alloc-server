@@ -402,10 +402,39 @@
   <data name="ConversationAccessDenied" xml:space="preserve">
     <value>Bạn không có quyền truy cập cuộc hội thoại AI này.</value>
   </data>
-  <data name="InvalidRequest" xml:space="preserve">
-    <value>Yêu cầu không hợp lệ.</value>
-  </data>
   <data name="DownstreamServiceError" xml:space="preserve">
     <value>Lỗi kết nối dịch vụ AI downstream. Vui lòng thử lại sau.</value>
+  </data>
+
+  <!-- Skills and ResourceSkills Exceptions -->
+  <data name="SkillNotFound" xml:space="preserve">
+    <value>Không tìm thấy kỹ năng trong danh mục.</value>
+  </data>
+  <data name="SkillNameRequired" xml:space="preserve">
+    <value>Tên kỹ năng là bắt buộc.</value>
+  </data>
+  <data name="SkillNameAlreadyExists" xml:space="preserve">
+    <value>Tên kỹ năng đã tồn tại trong hệ thống.</value>
+  </data>
+  <data name="SkillInUseCannotDelete" xml:space="preserve">
+    <value>Kỹ năng đang được nhân sự sử dụng, không thể xóa.</value>
+  </data>
+  <data name="ResourceNotFound" xml:space="preserve">
+    <value>Không tìm thấy hồ sơ nhân sự (Resource).</value>
+  </data>
+  <data name="ForbiddenAccessResourceSkills" xml:space="preserve">
+    <value>Bạn không có quyền truy cập hoặc chỉnh sửa kỹ năng của nhân sự này.</value>
+  </data>
+  <data name="SkillAlreadyAssignedToResource" xml:space="preserve">
+    <value>Nhân sự đã được gán kỹ năng này trước đó.</value>
+  </data>
+  <data name="ResourceSkillNotFound" xml:space="preserve">
+    <value>Nhân sự chưa được gán kỹ năng này.</value>
+  </data>
+  <data name="DuplicateSkillIdsInRequest" xml:space="preserve">
+    <value>Danh sách kỹ năng gửi lên có phần tử trùng lặp SkillID.</value>
+  </data>
+  <data name="MemberNotFound" xml:space="preserve">
+    <value>Không tìm thấy thành viên trong Workspace.</value>
   </data>
 </root>

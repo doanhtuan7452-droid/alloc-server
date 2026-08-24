@@ -37,6 +37,9 @@ namespace AllocServer.DTOs.AIInsights
         [JsonPropertyName("problem_solving_score")]
         public double ProblemSolvingScore { get; set; }
 
+        [JsonPropertyName("task_name")]
+        public string TaskName { get; set; } = string.Empty;
+
         [JsonPropertyName("task_complexity")]
         public string TaskComplexity { get; set; } = string.Empty;
 
@@ -63,5 +66,8 @@ namespace AllocServer.DTOs.AIInsights
 
         [JsonPropertyName("conflict_rate")]
         public double ConflictRate { get; set; }
+
+        [JsonPropertyName("skills")]
+        public List<PythonSkillItemDto> Skills { get; set; } = new();
     }
 }

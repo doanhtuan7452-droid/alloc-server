@@ -31,5 +31,14 @@ namespace AllocServer.DTOs.AIInsights
 
         [JsonPropertyName("potentialChallenges")]
         public List<string> PotentialChallenges { get; set; } = new();
+
+        [JsonPropertyName("matchedSkills")]
+        public List<PythonSkillItemDto> MatchedSkills { get; set; } = new();
+
+        [JsonPropertyName("semanticSkillScore")]
+        public double? SemanticSkillScore { get; set; }
+
+        [JsonPropertyName("isMarginalMatch")]
+        public bool IsMarginalMatch { get; set; }
     }
 }

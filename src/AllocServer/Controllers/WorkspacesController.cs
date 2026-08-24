@@ -14,6 +14,7 @@ using AllocServer.Interfaces.ProjectAssets;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Filters;
 using AllocServer.Constants.Permissions;
+using AllocServer.DTOs.ResourceSkills;
 
 namespace AllocServer.Controllers
 {
@@ -887,6 +888,88 @@ namespace AllocServer.Controllers
             catch (UnauthorizedAccessException ex)
             {
                 return StatusCode(403, new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Lấy thông tin chi tiết một thành viên trong Workspace.</summary>
+        [HttpGet("{workspaceId}/members/{memberId}")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(WorkspaceMemberDetailResponse), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetMemberDetails(int workspaceId, int memberId)
+        {
+            var member = await _workspaceService.GetWorkspaceMemberDetailsAsync(workspaceId, memberId);
+            if (member == null)
+            {
+                return NotFound(new ApiResponse { Message = "Không tìm thấy thành viên trong Workspace." });
+            }
+
+            return Ok(member);
+        }
+
+        /// <summary>Lấy danh sách kỹ năng của một thành viên trong Workspace.</summary>
+        [HttpGet("{workspaceId}/members/{memberId}/skills")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize]
+        [ProducesResponseType(typeof(List<ResourceSkillResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetMemberSkills(int workspaceId, int memberId)
+        {
+            try
+            {
+                var skills = await _workspaceService.GetMemberSkillsAsync(workspaceId, memberId);
+                return Ok(skills);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+        }
+
+        /// <summary>Cập nhật/thay thế danh sách kỹ năng của thành viên trong Workspace (Chỉ Manager/Owner).</summary>
+        [HttpPut("{workspaceId}/members/{memberId}/skills")]
+        [Authorize]
+        [RequireActiveAccount]
+        [WorkspaceAuthorize(MemberProfilePermissionIds.Manage)]
+        [ProducesResponseType(typeof(List<ResourceSkillResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> UpdateMemberSkills(
+            int workspaceId,
+            int memberId,
+            [FromBody] BatchUpsertResourceSkillsRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token không hợp lệ." });
+            }
+
+            var isSystemAccount = User.FindFirst("IsSystemAccount")?.Value?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+
+            try
+            {
+                var result = await _workspaceService.UpdateMemberSkillsAsync(workspaceId, memberId, request, accountId, isSystemAccount);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
             }
             catch (ArgumentException ex)
             {

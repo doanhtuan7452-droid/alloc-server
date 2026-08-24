@@ -1,7 +1,17 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace AllocServer.DTOs.AIInsights
 {
+    public class PythonSkillItemDto
+    {
+        [JsonPropertyName("skill_name")]
+        public string SkillName { get; set; } = string.Empty;
+
+        [JsonPropertyName("level")]
+        public int Level { get; set; }
+    }
+
     public class PythonEmployeeAssessmentInfo
     {
         [JsonPropertyName("employee_id")]
@@ -39,5 +49,9 @@ namespace AllocServer.DTOs.AIInsights
 
         [JsonPropertyName("conflict_rate")]
         public double ConflictRate { get; set; }
+
+        [JsonPropertyName("skills")]
+        public List<PythonSkillItemDto> Skills { get; set; } = new();
     }
 }
+

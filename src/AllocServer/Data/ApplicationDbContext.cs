@@ -42,6 +42,7 @@ namespace AllocServer.Data
         public DbSet<TaskAsset> TaskAssets { get; set; }
         public DbSet<TaskAssignee> TaskAssignees { get; set; }
         public DbSet<TaskDependency> TaskDependencies { get; set; }
+        public DbSet<SubTask> SubTasks { get; set; }
         public DbSet<Message> Messages { get; set; }
         public DbSet<MessageAsset> MessageAssets { get; set; }
         public DbSet<Notification> Notifications { get; set; }
@@ -270,6 +271,12 @@ namespace AllocServer.Data
                 .WithMany()
                 .HasForeignKey(log => log.ProjectID)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AILog>()
+                .HasOne(log => log.VerifiedByAccount)
+                .WithMany()
+                .HasForeignKey(log => log.VerifiedBy)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<AILog>()
                 .HasIndex(log => new
@@ -882,6 +889,23 @@ namespace AllocServer.Data
                     .WithMany()
                     .HasForeignKey(l => l.AccountID)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<SubTask>(entity =>
+            {
+                entity.HasQueryFilter(st => !st.IsDeleted);
+
+                entity.HasOne(st => st.Task)
+                      .WithMany(t => t.SubTasks)
+                      .HasForeignKey(st => st.TaskID)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(st => st.WorkspaceMember)
+                      .WithMany()
+                      .HasForeignKey(st => st.WorkspaceMemberID)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.ToTable(t => t.HasCheckConstraint("CHK_SubTasks_Status", "Status IN ('To-do', 'Done')"));
             });
         }
     }

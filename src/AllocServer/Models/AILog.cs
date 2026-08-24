@@ -24,6 +24,18 @@ namespace AllocServer.Models
         [StringLength(50)]
         public string? UserFeedback { get; set; }
 
+        [Range(0, 3)]
+        public int? CorrectedRiskLevel { get; set; }
+
+        public bool IsVerified { get; set; } = false;
+
+        public int? VerifiedBy { get; set; }
+
+        [ForeignKey("VerifiedBy")]
+        public Account? VerifiedByAccount { get; set; }
+
+        public DateTime? VerifiedAt { get; set; }
+
         public string? ModelInputJson { get; set; }
 
         public string? ModelOutputJson { get; set; }

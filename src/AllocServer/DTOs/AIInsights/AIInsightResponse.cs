@@ -19,6 +19,18 @@ namespace AllocServer.DTOs.AIInsights
         [JsonPropertyName("userFeedback")]
         public string? UserFeedback { get; set; }
 
+        [JsonPropertyName("correctedRiskLevel")]
+        public int? CorrectedRiskLevel { get; set; }
+
+        [JsonPropertyName("isVerified")]
+        public bool IsVerified { get; set; }
+
+        [JsonPropertyName("verifiedBy")]
+        public int? VerifiedBy { get; set; }
+
+        [JsonPropertyName("verifiedAt")]
+        public DateTime? VerifiedAt { get; set; }
+
         [JsonPropertyName("createdAt")]
         public DateTime CreatedAt { get; set; }
     }

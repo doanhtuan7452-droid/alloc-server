@@ -254,6 +254,47 @@ namespace AllocServer.Services.Task_Services
                         item.Assignees = list;
                     }
                 }
+
+                // Batch load Sub-tasks and calculate progress percentage
+                var subTasksList = await _context.SubTasks
+                    .AsNoTracking()
+                    .Where(st => taskIds.Contains(st.TaskID))
+                    .OrderBy(st => st.OrderIndex)
+                    .ThenBy(st => st.CreatedAt)
+                    .Select(st => new SubTaskResponse
+                    {
+                        SubTaskID = st.SubTaskID,
+                        TaskID = st.TaskID,
+                        SubTaskName = st.SubTaskName,
+                        Status = st.Status,
+                        WorkspaceMemberID = st.WorkspaceMemberID,
+                        OrderIndex = st.OrderIndex,
+                        CreatedAt = st.CreatedAt,
+                        UpdatedAt = st.UpdatedAt
+                    })
+                    .ToListAsync();
+
+                var subTasksDict = subTasksList
+                    .GroupBy(st => st.TaskID)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                foreach (var item in items)
+                {
+                    if (subTasksDict.TryGetValue(item.TaskID, out var subTasks))
+                    {
+                        item.SubTasks = subTasks;
+                        var totalSubTasks = subTasks.Count;
+                        var completedSubTasks = subTasks.Count(st => st.Status == "Done");
+                        item.ProgressPercentage = totalSubTasks > 0
+                            ? (decimal)completedSubTasks * 100 / totalSubTasks
+                            : (item.Status == "Done" ? 100m : 0m);
+                    }
+                    else
+                    {
+                        item.SubTasks = new List<SubTaskResponse>();
+                        item.ProgressPercentage = item.Status == "Done" ? 100m : 0m;
+                    }
+                }
             }
 
             return new PagedProjectTasksResponse
@@ -327,7 +368,7 @@ namespace AllocServer.Services.Task_Services
             var creatorMemberId = await GetWorkspaceMemberIdAsync(accountId, project.WorkspaceID);
             await _eventPublisher.PublishAsync(new TaskCreatedEvent(task.TaskID, task.TaskName, creatorMemberId, project.ProjectID, project.WorkspaceID));
 
-            return MapTask(task);
+            return await MapTaskAsync(task);
         }
 
         public async Task<ProjectTaskDetailResponse> UpdateProjectTaskAsync(
@@ -418,7 +459,7 @@ namespace AllocServer.Services.Task_Services
                 await _eventPublisher.PublishAsync(new TaskDeadlineChangedEvent(task.TaskID, task.TaskName, oldEndDate, request.EndDate, changerMemberId));
             }
 
-            return MapTask(task);
+            return await MapTaskAsync(task);
         }
 
         public async Task<TaskAssigneeResponse> AssignTaskAssigneeAsync(
@@ -1014,8 +1055,32 @@ namespace AllocServer.Services.Task_Services
             }
         }
 
-        private static ProjectTaskDetailResponse MapTask(ProjectTask task)
+        private async Task<ProjectTaskDetailResponse> MapTaskAsync(ProjectTask task)
         {
+            var subTasks = await _context.SubTasks
+                .AsNoTracking()
+                .Where(st => st.TaskID == task.TaskID)
+                .OrderBy(st => st.OrderIndex)
+                .ThenBy(st => st.CreatedAt)
+                .Select(st => new SubTaskResponse
+                {
+                    SubTaskID = st.SubTaskID,
+                    TaskID = st.TaskID,
+                    SubTaskName = st.SubTaskName,
+                    Status = st.Status,
+                    WorkspaceMemberID = st.WorkspaceMemberID,
+                    OrderIndex = st.OrderIndex,
+                    CreatedAt = st.CreatedAt,
+                    UpdatedAt = st.UpdatedAt
+                })
+                .ToListAsync();
+
+            var totalSubTasks = subTasks.Count;
+            var completedSubTasks = subTasks.Count(st => st.Status == "Done");
+            var progress = totalSubTasks > 0
+                ? (decimal)completedSubTasks * 100 / totalSubTasks
+                : (task.Status == "Done" ? 100m : 0m);
+
             return new ProjectTaskDetailResponse
             {
                 TaskID = task.TaskID,
@@ -1030,7 +1095,9 @@ namespace AllocServer.Services.Task_Services
                 Complexity = task.Complexity,
                 RequiredSkillLevel = task.RequiredSkillLevel,
                 Priority = task.Priority,
-                ExpectedTeamSize = task.ExpectedTeamSize
+                ExpectedTeamSize = task.ExpectedTeamSize,
+                SubTasks = subTasks,
+                ProgressPercentage = progress
             };
         }
 
@@ -1259,6 +1326,169 @@ namespace AllocServer.Services.Task_Services
             return string.IsNullOrWhiteSpace(value)
                 ? null
                 : value.Trim();
+        }
+
+        // Sub-tasks implementation
+        public async Task<SubTaskResponse> CreateSubTaskAsync(int accountId, int taskId, CreateSubTaskRequest request)
+        {
+            var task = await _context.ProjectTasks
+                .FirstOrDefaultAsync(t => t.TaskID == taskId);
+
+            if (task == null)
+            {
+                throw new KeyNotFoundException("TaskNotFound");
+            }
+
+            var subTaskName = NormalizeOptionalString(request.SubTaskName);
+            if (string.IsNullOrEmpty(subTaskName))
+            {
+                throw new ArgumentException("SubTaskNameRequired");
+            }
+
+            var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+            await ValidateWorkspaceMemberForTaskAsync(request.WorkspaceMemberID, taskWorkspaceId);
+
+            // Calculate OrderIndex: Max(OrderIndex) + 1
+            var maxOrderIndex = await _context.SubTasks
+                .Where(st => st.TaskID == taskId)
+                .Select(st => (int?)st.OrderIndex)
+                .MaxAsync() ?? -1;
+
+            var subTask = new SubTask
+            {
+                TaskID = taskId,
+                SubTaskName = subTaskName,
+                Status = "To-do",
+                WorkspaceMemberID = request.WorkspaceMemberID,
+                OrderIndex = maxOrderIndex + 1,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.SubTasks.Add(subTask);
+            await _context.SaveChangesAsync();
+
+            return new SubTaskResponse
+            {
+                SubTaskID = subTask.SubTaskID,
+                TaskID = subTask.TaskID,
+                SubTaskName = subTask.SubTaskName,
+                Status = subTask.Status,
+                WorkspaceMemberID = subTask.WorkspaceMemberID,
+                OrderIndex = subTask.OrderIndex,
+                CreatedAt = subTask.CreatedAt,
+                UpdatedAt = subTask.UpdatedAt
+            };
+        }
+
+        public async Task<SubTaskResponse> UpdateSubTaskAsync(int accountId, int taskId, int subTaskId, UpdateSubTaskRequest request)
+        {
+            var subTask = await _context.SubTasks
+                .FirstOrDefaultAsync(st => st.SubTaskID == subTaskId && st.TaskID == taskId);
+
+            if (subTask == null)
+            {
+                throw new KeyNotFoundException("SubTaskNotFound");
+            }
+
+            var subTaskName = NormalizeOptionalString(request.SubTaskName);
+            if (string.IsNullOrEmpty(subTaskName))
+            {
+                throw new ArgumentException("SubTaskNameRequired");
+            }
+
+            var task = await _context.ProjectTasks
+                .FirstAsync(t => t.TaskID == taskId);
+            var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+            await ValidateWorkspaceMemberForTaskAsync(request.WorkspaceMemberID, taskWorkspaceId);
+
+            subTask.SubTaskName = subTaskName;
+            subTask.Status = request.Status;
+            subTask.WorkspaceMemberID = request.WorkspaceMemberID;
+            subTask.OrderIndex = request.OrderIndex;
+            subTask.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            return new SubTaskResponse
+            {
+                SubTaskID = subTask.SubTaskID,
+                TaskID = subTask.TaskID,
+                SubTaskName = subTask.SubTaskName,
+                Status = subTask.Status,
+                WorkspaceMemberID = subTask.WorkspaceMemberID,
+                OrderIndex = subTask.OrderIndex,
+                CreatedAt = subTask.CreatedAt,
+                UpdatedAt = subTask.UpdatedAt
+            };
+        }
+
+        public async Task<bool> DeleteSubTaskAsync(int accountId, int taskId, int subTaskId)
+        {
+            var subTask = await _context.SubTasks
+                .FirstOrDefaultAsync(st => st.SubTaskID == subTaskId && st.TaskID == taskId);
+
+            if (subTask == null)
+            {
+                return false;
+            }
+
+            subTask.IsDeleted = true;
+            subTask.DeletedAt = DateTime.UtcNow;
+            var task = await _context.ProjectTasks.FirstAsync(t => t.TaskID == taskId);
+            var taskWorkspaceId = await GetTaskWorkspaceIdAsync(task);
+            var deleterMemberId = await GetWorkspaceMemberIdAsync(accountId, taskWorkspaceId);
+            subTask.DeletedBy = deleterMemberId;
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<List<SubTaskResponse>> GetTaskSubTasksAsync(int taskId)
+        {
+            var taskExists = await _context.ProjectTasks.AnyAsync(t => t.TaskID == taskId);
+            if (!taskExists)
+            {
+                throw new KeyNotFoundException("TaskNotFound");
+            }
+
+            return await _context.SubTasks
+                .AsNoTracking()
+                .Where(st => st.TaskID == taskId)
+                .OrderBy(st => st.OrderIndex)
+                .ThenBy(st => st.CreatedAt)
+                .Select(st => new SubTaskResponse
+                {
+                    SubTaskID = st.SubTaskID,
+                    TaskID = st.TaskID,
+                    SubTaskName = st.SubTaskName,
+                    Status = st.Status,
+                    WorkspaceMemberID = st.WorkspaceMemberID,
+                    OrderIndex = st.OrderIndex,
+                    CreatedAt = st.CreatedAt,
+                    UpdatedAt = st.UpdatedAt
+                })
+                .ToListAsync();
+        }
+
+        private async Task ValidateWorkspaceMemberForTaskAsync(int? workspaceMemberId, int taskWorkspaceId)
+        {
+            if (!workspaceMemberId.HasValue) return;
+
+            var isValid = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .AnyAsync(member =>
+                    member.WorkspaceMemberID == workspaceMemberId.Value
+                    && member.WorkspaceID == taskWorkspaceId
+                    && member.Status == "Active"
+                    && !member.Workspace.IsDeleted
+                    && !member.Resource.IsDeleted
+                    && _context.Accounts.Any(account =>
+                        account.AccountID == member.Resource.AccountID));
+
+            if (!isValid)
+            {
+                throw new ArgumentException("InvalidSubTaskMember");
+            }
         }
     }
 }

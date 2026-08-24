@@ -1,6 +1,7 @@
 using AllocServer.Data;
 using AllocServer.DTOs.Workspaces;
 using AllocServer.Interfaces;
+using AllocServer.Interfaces.ResourceSkills;
 using AllocServer.Interfaces.Workspaces;
 using AllocServer.Models;
 using AllocServer.Exceptions;
@@ -17,17 +18,20 @@ namespace AllocServer.Services.Workspace_Services
         private readonly IFeatureQuotaService _featureQuotaService;
         private readonly IDistributedCache _cache;
         private readonly IEventPublisher _eventPublisher;
+        private readonly IResourceSkillService _resourceSkillService;
 
         public WorkspaceService(
             ApplicationDbContext context,
             IFeatureQuotaService featureQuotaService,
             IDistributedCache cache,
-            IEventPublisher eventPublisher)
+            IEventPublisher eventPublisher,
+            IResourceSkillService resourceSkillService)
         {
             _context = context;
             _featureQuotaService = featureQuotaService;
             _cache = cache;
             _eventPublisher = eventPublisher;
+            _resourceSkillService = resourceSkillService;
         }
 
         public async Task<List<WorkspaceListItemResponse>> GetCurrentUserWorkspacesAsync(int accountId)
@@ -1357,6 +1361,74 @@ namespace AllocServer.Services.Workspace_Services
             }
 
             throw new ArgumentException("InvalidSearchType");
+        }
+
+        public async Task<WorkspaceMemberDetailResponse?> GetWorkspaceMemberDetailsAsync(int workspaceId, int memberId)
+        {
+            var member = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .Include(m => m.Resource)
+                .Include(m => m.WorkspaceRole)
+                .FirstOrDefaultAsync(m => m.WorkspaceID == workspaceId && m.WorkspaceMemberID == memberId);
+
+            if (member == null)
+            {
+                return null;
+            }
+
+            return new WorkspaceMemberDetailResponse
+            {
+                WorkspaceMemberID = member.WorkspaceMemberID,
+                EmployeeCode = member.EmployeeCode,
+                Status = member.Status,
+                JoinedAt = member.JoinedAt,
+                Resource = new WorkspaceMemberResourceResponse
+                {
+                    ResourceID = member.Resource.ResourceID,
+                    FullName = member.Resource.FullName,
+                    PhoneNumber = member.Resource.PhoneNumber,
+                    AvatarURL = member.Resource.AvatarURL,
+                    Timezone = member.Resource.Timezone
+                },
+                Role = new WorkspaceRoleSummaryResponse
+                {
+                    WorkspaceRoleID = member.WorkspaceRole.WorkspaceRoleID,
+                    RoleName = member.WorkspaceRole.RoleName
+                }
+            };
+        }
+
+        public async Task<List<AllocServer.DTOs.ResourceSkills.ResourceSkillResponse>> GetMemberSkillsAsync(int workspaceId, int memberId)
+        {
+            var member = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.WorkspaceID == workspaceId && m.WorkspaceMemberID == memberId);
+
+            if (member == null)
+            {
+                throw new KeyNotFoundException("MemberNotFound");
+            }
+
+            return await _resourceSkillService.GetResourceSkillsAsync(member.ResourceID);
+        }
+
+        public async Task<List<AllocServer.DTOs.ResourceSkills.ResourceSkillResponse>> UpdateMemberSkillsAsync(
+            int workspaceId,
+            int memberId,
+            AllocServer.DTOs.ResourceSkills.BatchUpsertResourceSkillsRequest request,
+            int currentAccountId,
+            bool isSystemAccount)
+        {
+            var member = await _context.WorkspaceMembers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.WorkspaceID == workspaceId && m.WorkspaceMemberID == memberId);
+
+            if (member == null)
+            {
+                throw new KeyNotFoundException("MemberNotFound");
+            }
+
+            return await _resourceSkillService.BatchUpsertSkillsAsync(member.ResourceID, request, currentAccountId, isSystemAccount: true);
         }
     }
 }

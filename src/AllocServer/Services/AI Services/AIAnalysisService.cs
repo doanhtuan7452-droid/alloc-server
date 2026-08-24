@@ -181,7 +181,7 @@ namespace AllocServer.Services.AI_Services
             double avgTeamSkillLevel;
             if (!teamMembers.Any())
             {
-                avgTeamSkillLevel = 6.0; // Fallback: default 3.0 scaled by 2.0
+                avgTeamSkillLevel = 3.0; // Fallback: default 3.0 (Scale 1-5)
             }
             else
             {
@@ -203,7 +203,7 @@ namespace AllocServer.Services.AI_Services
                     skillAverages.Add(memberAvg);
                 }
                 
-                avgTeamSkillLevel = skillAverages.Average() * 2.0; // Scale 1-5 to 2-10
+                avgTeamSkillLevel = skillAverages.Average(); // Scale 1-5 (Unified across 3 layers)
             }
 
             // 5. Complexity Score (Scaled 1-10)
@@ -411,7 +411,22 @@ namespace AllocServer.Services.AI_Services
                 throw new InvalidOperationException("Khong co nhan su nao dang hoat dong trong Workspace de danh gia.");
             }
 
-            // 5. Construct Python request payload with ALL profile fields to prevent confidence penalties
+            // 5. Construct Python request payload with ALL profile fields & ResourceSkills for Semantic NLP/Embedding
+            var candidateResourceIds = activeMemberData.Select(d => d.Member.ResourceID).Distinct().ToList();
+            var candidateSkillsMap = await _context.ResourceSkills
+                .AsNoTracking()
+                .Include(rs => rs.Skill)
+                .Where(rs => candidateResourceIds.Contains(rs.ResourceID) && !rs.Skill.IsDeleted)
+                .GroupBy(rs => rs.ResourceID)
+                .ToDictionaryAsync(
+                    g => g.Key,
+                    g => g.Select(rs => new PythonSkillItemDto
+                    {
+                        SkillName = rs.Skill.SkillName,
+                        Level = rs.Level
+                    }).ToList()
+                );
+
             var employeesPayload = new List<PythonEmployeeAssessmentInfo>();
             foreach (var data in activeMemberData)
             {
@@ -462,13 +477,15 @@ namespace AllocServer.Services.AI_Services
                     ProblemSolvingScore = pbScore,
                     AttendanceRate = attRate,
                     ConflictRate = confRate,
-                    PerformanceRating = perfRating
+                    PerformanceRating = perfRating,
+                    Skills = candidateSkillsMap.TryGetValue(m.ResourceID, out var skillsList) ? skillsList : new List<PythonSkillItemDto>()
                 });
             }
 
             var payload = new PythonBulkAssessmentRequest
             {
                 RequestType = "bulk",
+                TaskName = task.TaskName,
                 TaskComplexity = taskComplexity,
                 DeadlineDays = deadlineDays,
                 RequiredSkillLevel = requiredSkillLevel,
@@ -529,20 +546,23 @@ namespace AllocServer.Services.AI_Services
                         BusinessStatusText = res.BusinessStatusText,
                         LlmInsight = res.LlmInsight,
                         SuccessFactors = res.SuccessFactors ?? new(),
-                        PotentialChallenges = res.PotentialChallenges ?? new()
+                        PotentialChallenges = res.PotentialChallenges ?? new(),
+                        MatchedSkills = res.MatchedSkills ?? new(),
+                        SemanticSkillScore = res.SemanticSkillScore,
+                        IsMarginalMatch = res.IsMarginalMatch
                     });
                 }
             }
 
             // 8. Generate Audit Markdown for database logs
             var tableBuilder = new StringBuilder();
-            tableBuilder.AppendLine("| Hạng | Mã nhân viên | Tên nhân sự | Đánh giá | Điểm phù hợp | Độ tin cậy | Trạng thái |");
-            tableBuilder.AppendLine("|---|---|---|---|---|---|---|");
+            tableBuilder.AppendLine("| Hạng | Mã nhân viên | Tên nhân sự | Đánh giá | Điểm phù hợp | Điểm kỹ năng ngữ nghĩa | Độ tin cậy | Trạng thái |");
+            tableBuilder.AppendLine("|---|---|---|---|---|---|---|---|");
 
             for (int i = 0; i < rankedResults.Count; i++)
             {
                 var res = rankedResults[i];
-                tableBuilder.AppendLine($"| {i + 1} | {res.EmployeeId} | {res.EmployeeName} | {res.PredictionLabel} | {res.FitPercentage:F1}% | {res.ConfidenceScore * 100:F1}% | {res.BusinessStatusText} |");
+                tableBuilder.AppendLine($"| {i + 1} | {res.EmployeeId} | {res.EmployeeName} | {res.PredictionLabel} | {res.FitPercentage:F1}% | {res.SemanticSkillScore:F1}/100 | {res.ConfidenceScore * 100:F1}% | {res.BusinessStatusText} |");
             }
 
             var detailsBuilder = new StringBuilder();
@@ -550,13 +570,18 @@ namespace AllocServer.Services.AI_Services
             {
                 string successStr = res.SuccessFactors != null && res.SuccessFactors.Any() ? string.Join(", ", res.SuccessFactors) : "Không ghi nhận";
                 string challengesStr = res.PotentialChallenges != null && res.PotentialChallenges.Any() ? string.Join(", ", res.PotentialChallenges) : "Không ghi nhận";
+                string matchedSkillsStr = res.MatchedSkills != null && res.MatchedSkills.Any()
+                    ? string.Join(", ", res.MatchedSkills.Select(s => $"{s.SkillName} (Lv.{s.Level})"))
+                    : "Không có kỹ năng khớp trực tiếp";
+                string marginalNote = res.IsMarginalMatch ? " *(Lưu ý: Kỹ năng chỉ khớp ở mức độ tương quan gián tiếp)*" : string.Empty;
 
                 detailsBuilder.AppendLine($"""
                     #### 👤 {res.EmployeeName} ({res.EmployeeId})
                     - **Đánh giá:** {res.PredictionLabel} ({res.BusinessStatusText}) - **Điểm phù hợp:** {res.FitPercentage:F1}%
-                    - **Nhận định:** {res.LlmInsight}
+                    - **Kỹ năng phù hợp với Task:** {matchedSkillsStr} (Điểm ngữ nghĩa: {res.SemanticSkillScore:F1}/100){marginalNote}
+                    - **Nhận định AI:** {res.LlmInsight}
                     - **Yếu tố thuận lợi:** {successStr}
-                    - **Thử thách:** {challengesStr}
+                    - **Thử thách tiềm ẩn:** {challengesStr}
                     
                     """);
             }

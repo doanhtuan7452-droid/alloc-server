@@ -8,6 +8,9 @@ namespace AllocServer.DTOs.AIInsights
         [JsonPropertyName("request_type")]
         public string RequestType { get; set; } = "bulk";
 
+        [JsonPropertyName("task_name")]
+        public string TaskName { get; set; } = string.Empty;
+
         [JsonPropertyName("task_complexity")]
         public string TaskComplexity { get; set; } = string.Empty;
 

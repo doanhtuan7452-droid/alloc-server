@@ -70,5 +70,11 @@ namespace AllocServer.Interfaces.Tasks
             int accountId, 
             ProjectTask task, 
             int assetId);
+
+        // Sub-tasks
+        Task<SubTaskResponse> CreateSubTaskAsync(int accountId, int taskId, CreateSubTaskRequest request);
+        Task<SubTaskResponse> UpdateSubTaskAsync(int accountId, int taskId, int subTaskId, UpdateSubTaskRequest request);
+        Task<bool> DeleteSubTaskAsync(int accountId, int taskId, int subTaskId);
+        Task<List<SubTaskResponse>> GetTaskSubTasksAsync(int taskId);
     }
 }

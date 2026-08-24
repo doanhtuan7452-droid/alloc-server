@@ -103,7 +103,7 @@ namespace AllocServer.Services.AI_Services.Handlers
                 totalTasks = x.RiskFeature?.Total_Tasks ?? 0,
                 teamSize = x.RiskFeature?.Team_Size ?? 0,
                 avgTeamSkillLevel = x.RiskFeature?.Avg_Team_Skill_Level ?? 3.0,
-                rawComplexityScore = x.RiskFeature?.Raw_Complexity_Score ?? 0.0,
+                rawComplexityScore = x.RiskFeature?.Raw_Complexity_Score ?? 0m,
                 budgetUtilizationRate = x.RiskFeature?.Budget_Utilization_Rate ?? 0m,
                 overallRiskScore = x.RiskFeature?.Overall_Risk_Score ?? 0.0
             }).ToList();

@@ -2,8 +2,16 @@ using System.Collections.Generic;
 
 namespace AllocServer.DTOs.MLExport
 {
+    public class PersonnelSkillExportDto
+    {
+        public string SkillName { get; set; } = string.Empty;
+        public int Level { get; set; }
+    }
+
     public class PersonnelTrainingRow
     {
+        public string TaskName { get; set; } = string.Empty;
+        public List<PersonnelSkillExportDto> Skills { get; set; } = new();
         public double ExperienceYears { get; set; }
         public string EducationLevel { get; set; } = string.Empty;
         public string SkillLevel { get; set; } = string.Empty;

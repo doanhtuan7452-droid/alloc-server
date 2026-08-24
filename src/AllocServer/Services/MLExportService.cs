@@ -1,3 +1,4 @@
+using AllocServer.Converters;
 using AllocServer.Data;
 using AllocServer.DTOs.MLExport;
 using AllocServer.Models;
@@ -23,9 +24,12 @@ namespace AllocServer.Services
             int? projectId,
             DateTime? startDate,
             DateTime? endDate,
-            int page,
-            int pageSize)
+            int page = 1,
+            int pageSize = 100)
         {
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize, 1, 1000);
+
             // Query completed tasks assignments (Tasks.Status == "Done")
             var query = from assignee in _context.TaskAssignees
                         join task in _context.ProjectTasks on assignee.TaskID equals task.TaskID
@@ -74,6 +78,21 @@ namespace AllocServer.Services
             var dataRows = new List<PersonnelTrainingRow>();
 
             var memberIds = dbData.Select(x => x.member.WorkspaceMemberID).Distinct().ToList();
+            var resourceIds = dbData.Select(x => x.member.ResourceID).Distinct().ToList();
+
+            var resourceSkillsMap = await _context.ResourceSkills
+                .AsNoTracking()
+                .Include(rs => rs.Skill)
+                .Where(rs => resourceIds.Contains(rs.ResourceID) && !rs.Skill.IsDeleted)
+                .GroupBy(rs => rs.ResourceID)
+                .ToDictionaryAsync(
+                    g => g.Key,
+                    g => g.Select(rs => new PersonnelSkillExportDto
+                    {
+                        SkillName = rs.Skill.SkillName,
+                        Level = rs.Level
+                    }).ToList()
+                );
 
             var evaluations = await _context.MemberEvaluations
                 .Include(e => e.ReviewCycle)
@@ -198,11 +217,16 @@ namespace AllocServer.Services
 
                 // Check if there is an AILog entry that represents a prediction for this task/member
                 var aiLog = await _context.AILogs
-                    .Where(l => l.ProjectID == p.ProjectID && l.SuggestionType == "Resource Suggestion" && l.ModelOutputJson != null)
+                    .Where(l => l.ProjectID == p.ProjectID && l.SuggestionType == "Resource Suggestion")
                     .OrderByDescending(l => l.CreatedAt)
                     .FirstOrDefaultAsync();
 
-                if (aiLog != null && !string.IsNullOrEmpty(aiLog.ModelOutputJson))
+                // Clean-Label Gate for Personnel: Skip unverified rejected recommendations to prevent feedback loop
+                bool isEligibleForTargets = aiLog != null 
+                    && !string.IsNullOrEmpty(aiLog.ModelOutputJson)
+                    && (aiLog.IsVerified || aiLog.UserFeedback == "Accepted" || aiLog.UserFeedback != "Rejected");
+
+                if (isEligibleForTargets && !string.IsNullOrEmpty(aiLog!.ModelOutputJson))
                 {
                     try
                     {
@@ -240,6 +264,8 @@ namespace AllocServer.Services
 
                 dataRows.Add(new PersonnelTrainingRow
                 {
+                    TaskName = t.TaskName,
+                    Skills = resourceSkillsMap.TryGetValue(m.ResourceID, out var skillsList) ? skillsList : new List<PersonnelSkillExportDto>(),
                     ExperienceYears = expYears,
                     EducationLevel = eduLevel,
                     SkillLevel = sLevel,
@@ -283,30 +309,35 @@ namespace AllocServer.Services
             int page,
             int pageSize)
         {
-            var query = _context.ProjectRiskFeatures.AsQueryable();
+            // Gate 1: Completeness Filter (Lọc dữ liệu đầy đủ, loại trừ Cancelled / Chưa phát sinh chi phí)
+            var query = from f in _context.ProjectRiskFeatures
+                        join p in _context.Projects on f.ProjectID equals p.ProjectID
+                        where !p.IsDeleted
+                           && p.Status != "Cancelled"
+                           && (p.Status == "Completed" || f.Project_Duration_Days >= 30)
+                           && f.Total_Tasks > 0
+                           && f.Team_Size >= 1
+                           && f.Expected_Budget > 0
+                           && f.Budget_Utilization_Rate > 0
+                        select new { Feature = f, Project = p };
 
             if (workspaceId.HasValue)
             {
-                query = from f in query
-                        join p in _context.Projects on f.ProjectID equals p.ProjectID
-                        where p.WorkspaceID == workspaceId.Value
-                        select f;
+                query = query.Where(x => x.Project.WorkspaceID == workspaceId.Value);
             }
 
             if (!string.IsNullOrEmpty(status))
             {
-                query = from f in query
-                        join p in _context.Projects on f.ProjectID equals p.ProjectID
-                        where p.Status == status
-                        select f;
+                query = query.Where(x => x.Project.Status == status);
             }
 
             int totalCount = await query.CountAsync();
 
             var dbData = await query
-                .OrderBy(x => x.ProjectID)
+                .OrderBy(x => x.Feature.ProjectID)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
+                .Select(x => x.Feature)
                 .ToListAsync();
 
             var dataRows = new List<ProjectRiskTrainingRow>();
@@ -320,26 +351,43 @@ namespace AllocServer.Services
                 int methodWaterfall = methodology == "waterfall" ? 1 : 0;
                 int methodHybrid = methodology == "hybrid" ? 1 : 0;
 
-                // Try to find the target prediction_code from AILogs
+                // Gate 2: Financial Outlier Clipping
+                double clampedBudgetUtilization = Math.Clamp((double)item.Budget_Utilization_Rate, 0.0, 3.0);
+                double clampedComplexityScore = Math.Clamp((double)item.Raw_Complexity_Score, 2.0, 10.0);
+                double clampedSkillLevel = Math.Clamp(item.Avg_Team_Skill_Level, 1.0, 5.0);
+
+                // Gate 3: Clean-Label & Binary Target Resolution
                 int? predictionCode = null;
                 var aiLog = await _context.AILogs
-                    .Where(l => l.ProjectID == item.ProjectID && l.SuggestionType == "Risk Warning" && l.ModelOutputJson != null)
+                    .Where(l => l.ProjectID == item.ProjectID && l.SuggestionType == "Risk Warning")
                     .OrderByDescending(l => l.CreatedAt)
                     .FirstOrDefaultAsync();
 
-                if (aiLog != null && !string.IsNullOrEmpty(aiLog.ModelOutputJson))
+                if (aiLog != null)
                 {
-                    try
+                    if (aiLog.IsVerified)
                     {
-                        using var doc = System.Text.Json.JsonDocument.Parse(aiLog.ModelOutputJson);
-                        if (doc.RootElement.TryGetProperty("prediction_code", out var codeProp))
+                        if (aiLog.CorrectedRiskLevel.HasValue)
                         {
-                            predictionCode = codeProp.GetInt32();
+                            // Ánh xạ 4 mức rủi ro nghiệp vụ sang bài toán nhị phân {0,1}->0, {2,3}->1
+                            predictionCode = (aiLog.CorrectedRiskLevel.Value >= 2) ? 1 : 0;
+                        }
+                        else if (string.Equals(aiLog.UserFeedback, "Accepted", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(aiLog.ModelOutputJson))
+                        {
+                            predictionCode = TryParsePredictionCode(aiLog.ModelOutputJson);
                         }
                     }
-                    catch
+                    else
                     {
-                        // Ignore parse error
+                        // Chưa xác minh: loại bỏ triệt để nhãn Rejected khỏi tập huấn luyện có nhãn
+                        if (string.Equals(aiLog.UserFeedback, "Rejected", StringComparison.OrdinalIgnoreCase))
+                        {
+                            predictionCode = null; // Clean-Label filter: chặn Feedback Loop
+                        }
+                        else if (string.Equals(aiLog.UserFeedback, "Accepted", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(aiLog.ModelOutputJson))
+                        {
+                            predictionCode = TryParsePredictionCode(aiLog.ModelOutputJson);
+                        }
                     }
                 }
 
@@ -350,9 +398,9 @@ namespace AllocServer.Services
                     ProjectDurationDays = item.Project_Duration_Days,
                     ExpectedBudget = (double)item.Expected_Budget,
                     TeamSize = item.Team_Size,
-                    AvgTeamSkillLevel = item.Avg_Team_Skill_Level,
-                    ComplexityScore = item.Raw_Complexity_Score,
-                    BudgetUtilization = (double)item.Budget_Utilization_Rate,
+                    AvgTeamSkillLevel = clampedSkillLevel,
+                    ComplexityScore = clampedComplexityScore,
+                    BudgetUtilization = clampedBudgetUtilization,
                     MethodologyUsedHybrid = methodHybrid,
                     MethodologyUsedKanban = methodKanban,
                     MethodologyUsedScrum = methodScrum,
@@ -369,6 +417,23 @@ namespace AllocServer.Services
                 PageSize = pageSize,
                 Data = dataRows
             };
+        }
+
+        private static int? TryParsePredictionCode(string modelOutputJson)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(modelOutputJson);
+                if (doc.RootElement.TryGetProperty("prediction_code", out var codeProp))
+                {
+                    return codeProp.GetInt32();
+                }
+            }
+            catch
+            {
+                // Ignore parse error
+            }
+            return null;
         }
     }
 }

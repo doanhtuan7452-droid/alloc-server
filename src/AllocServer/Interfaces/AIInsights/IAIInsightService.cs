@@ -8,5 +8,11 @@ namespace AllocServer.Interfaces.AIInsights
         Task<PagedAIInsightsResponse> GetProjectAIInsightsAsync(
             Project project,
             GetProjectAIInsightsQuery query);
+
+        Task<AIInsightResponse> UpdateLogFeedbackAsync(
+            int projectId,
+            int logId,
+            int accountId,
+            UpdateAILogFeedbackRequest request);
     }
 }
