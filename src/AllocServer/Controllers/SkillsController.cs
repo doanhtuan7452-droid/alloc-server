@@ -65,15 +65,13 @@ namespace AllocServer.Controllers
             return Ok(skill);
         }
 
-        /// <summary>Thêm mới kỹ năng vào danh mục toàn cục (Chỉ System Admin).</summary>
+        /// <summary>Thêm mới kỹ năng vào danh mục toàn cục.</summary>
         [HttpPost]
         [Authorize]
         [RequireActiveAccount]
-        [RequireSystemAccount]
         [ProducesResponseType(typeof(SkillResponse), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status403Forbidden)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
         public async Task<IActionResult> CreateSkill([FromBody] CreateSkillRequest request)
         {

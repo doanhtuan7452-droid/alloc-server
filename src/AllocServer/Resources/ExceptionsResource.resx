@@ -437,4 +437,7 @@
   <data name="MemberNotFound" xml:space="preserve">
     <value>Không tìm thấy thành viên trong Workspace.</value>
   </data>
+  <data name="ExceededMaxSkillsLimit" xml:space="preserve">
+    <value>Mỗi nhân sự chỉ được thiết lập tối đa 30 kỹ năng.</value>
+  </data>
 </root>

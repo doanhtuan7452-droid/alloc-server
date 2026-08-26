@@ -19,6 +19,7 @@ namespace AllocServer.DTOs.ResourceSkills
     public class BatchUpsertResourceSkillsRequest
     {
         [Required(ErrorMessage = "Skills list is required")]
+        [MaxLength(30, ErrorMessage = "A user can have at most 30 skills")]
         [JsonPropertyName("skills")]
         public List<SkillLevelItemRequest> Skills { get; set; } = new();
     }

@@ -97,6 +97,12 @@ namespace AllocServer.Services.ResourceSkillServices
                 throw new InvalidOperationException("SkillAlreadyAssignedToResource");
             }
 
+            var currentSkillCount = await _context.ResourceSkills.CountAsync(rs => rs.ResourceID == resourceId);
+            if (currentSkillCount >= 30)
+            {
+                throw new InvalidOperationException("ExceededMaxSkillsLimit");
+            }
+
             var newResourceSkill = new ResourceSkill
             {
                 ResourceID = resourceId,
@@ -216,6 +222,12 @@ namespace AllocServer.Services.ResourceSkillServices
                 throw new UnauthorizedAccessException("ForbiddenAccessResourceSkills");
             }
 
+            // Validate giới hạn tối đa 30 kỹ năng cho một cá nhân
+            if (request.Skills.Count > 30)
+            {
+                throw new ArgumentException("ExceededMaxSkillsLimit");
+            }
+
             // Validate chống trùng lặp SkillID trong cùng request
             if (request.Skills.Select(s => s.SkillID).Distinct().Count() != request.Skills.Count)
             {
@@ -276,6 +288,22 @@ namespace AllocServer.Services.ResourceSkillServices
             await EnqueueAffectedMembersAsync(resourceId);
 
             return await GetResourceSkillsAsync(resourceId);
+        }
+
+        public async Task<List<ResourceSkillResponse>> BatchUpsertMySkillsAsync(
+            int currentAccountId,
+            BatchUpsertResourceSkillsRequest request)
+        {
+            var resource = await _context.Resources
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.AccountID == currentAccountId);
+
+            if (resource == null)
+            {
+                throw new KeyNotFoundException("ResourceNotFound");
+            }
+
+            return await BatchUpsertSkillsAsync(resource.ResourceID, request, currentAccountId, isSystemAccount: false);
         }
 
         private async Task EnqueueAffectedMembersAsync(int resourceId)

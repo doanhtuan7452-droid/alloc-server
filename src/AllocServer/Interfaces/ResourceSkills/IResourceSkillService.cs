@@ -12,5 +12,6 @@ namespace AllocServer.Interfaces.ResourceSkills
         Task<ResourceSkillResponse> UpdateSkillLevelAsync(int resourceId, int skillId, UpdateResourceSkillLevelRequest request, int currentAccountId, bool isSystemAccount);
         Task<bool> RemoveSkillAsync(int resourceId, int skillId, int currentAccountId, bool isSystemAccount);
         Task<List<ResourceSkillResponse>> BatchUpsertSkillsAsync(int resourceId, BatchUpsertResourceSkillsRequest request, int currentAccountId, bool isSystemAccount);
+        Task<List<ResourceSkillResponse>> BatchUpsertMySkillsAsync(int currentAccountId, BatchUpsertResourceSkillsRequest request);
     }
 }

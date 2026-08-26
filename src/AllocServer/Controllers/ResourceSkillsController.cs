@@ -69,6 +69,39 @@ namespace AllocServer.Controllers
             }
         }
 
+        /// <summary>Cập nhật/thay thế toàn bộ danh sách kỹ năng của chính tài khoản đang đăng nhập (Tối đa 30 kỹ năng).</summary>
+        [HttpPut("accounts/me/skills")]
+        [Authorize]
+        [RequireActiveAccount]
+        [ProducesResponseType(typeof(List<ResourceSkillResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> BatchUpsertMySkills([FromBody] BatchUpsertResourceSkillsRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            if (!TryGetCurrentAccountId(out var accountId))
+            {
+                return Unauthorized(new ApiResponse { Message = "Token không hợp lệ." });
+            }
+
+            try
+            {
+                var result = await _resourceSkillService.BatchUpsertMySkillsAsync(accountId, request);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse { Message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse { Message = ex.Message });
+            }
+        }
+
         /// <summary>Gán một kỹ năng mới cho nhân sự kèm Level (1-5).</summary>
         [HttpPost("resources/{resourceId}/skills")]
         [Authorize]
